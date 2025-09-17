@@ -288,13 +288,9 @@ def extract_agent_response(result):
     except Exception as e:
         return f"Error extracting response: {e}", 0
 
-async def run_human_friendly_example(query: str, title: str):
-    """Run an example query and show human-friendly response"""
-    print(f"\n{'='*80}")
-    print(f" {title}")
-    print(f"{'='*80}")
-    print(f"💬 Query: {query}")
-    print("\n🔄 Processing...")
+async def process_netbox_query(query: str):
+    """Process a NetBox query and show human-friendly response"""
+    print(f"\n🔄 Processing: {query}")
 
     try:
         result = await netbox_agent.ainvoke({
@@ -304,46 +300,58 @@ async def run_human_friendly_example(query: str, title: str):
         response, msg_count = extract_agent_response(result)
 
         print(f"\n🤖 NetBox Agent Response:")
-        print("-" * 80)
+        print("-" * 60)
         print(response)
-        print("-" * 80)
-        print(f"📊 Conversation messages: {msg_count}")
+        print("-" * 60)
+        print(f"📊 Messages: {msg_count}")
 
     except Exception as e:
-        print(f"❌ Error: {str(e)}")
+        print(f"❌ Query failed: {str(e)}")
+        raise
+
+async def get_user_input(prompt: str) -> str:
+    """Get user input asynchronously without blocking event loop"""
+    try:
+        return await asyncio.to_thread(input, prompt)
+    except EOFError:
+        return "exit"  # Handle Ctrl+D
 
 # Example usage with human-friendly responses
 async def main():
-    """Main function demonstrating the NetBox agent with human-friendly responses"""
+    """Interactive NetBox agent CLI with continuous query loop"""
 
-    print("🚀 NetBox Dynamic Agent - Human-Friendly Response Examples")
+    # Welcome message
+    print("🚀 NetBox Interactive Agent CLI")
     print(f"Agent has access to all {len(TOOL_REGISTRY)} NetBox tools!")
+    print("\nAvailable commands:")
+    print("  - Type any NetBox query in natural language")
+    print("  - 'exit', 'quit', or 'q' to quit")
+    print("  - Ctrl+C for immediate exit")
+    print(f"\n{'='*60}")
 
-    # Example 1: List All Sites
-    await run_human_friendly_example(
-        "Show me all sites in NetBox",
-        "Example 1: Site Inventory Query"
-    )
+    try:
+        while True:
+            try:
+                # Get user input
+                query = await get_user_input("\n💬 NetBox Query: ")
 
-    # Example 2: Specific Site Information
-    await run_human_friendly_example(
-        "Show me information about site JBB Branch 104",
-        "Example 2: Site Details Query"
-    )
+                # Handle exit commands
+                if query.lower().strip() in ['exit', 'quit', 'q', '']:
+                    print("👋 Goodbye!")
+                    break
 
-    # Example 3: Site Device Inventory
-    await run_human_friendly_example(
-        "Show all devices in site DM-Binghamton",
-        "Example 3: Site Device Inventory Query"
-    )
+                # Process the query
+                await process_netbox_query(query)
 
-    print(f"\n{'='*80}")
-    print(" Summary")
-    print(f"{'='*80}")
-    print("✅ All examples completed successfully!")
-    print(f"🔧 Dynamic tool generation: {len(TOOL_REGISTRY)} NetBox tools")
-    print("📋 Categories: SYSTEM, DCIM, IPAM, TENANCY, EXTRAS, VIRTUALIZATION")
-    print("🎨 Human-friendly formatting with emojis and structure")
+            except KeyboardInterrupt:
+                print("\n👋 Goodbye!")
+                break
+            except Exception as e:
+                print(f"❌ Error: {str(e)}")
+                print("Please try again or type 'exit' to quit.")
+
+    except KeyboardInterrupt:
+        print("\n👋 Goodbye!")
 
 if __name__ == "__main__":
     asyncio.run(main())
