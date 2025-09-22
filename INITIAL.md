@@ -2,53 +2,78 @@
 
 ## FEATURE:
 We want to devlop our existing deepagent application.
-We want to develop the netbox_agent.py which currently has a significant gap in the netbox mcp tool coverage
-- Total NetBox MCP Tools Available: 62 tools
-- Explicitly Wrapped Tools: 8 tools (13% coverage)
-- Unwrapped Tools: 54 tools (87% not directly accessible)
-The current implementation uses manual wrapper functions for a limited set of core
-  tools:
+We want to develop the netbox_agent.py to use Claude API Prompt Caching for NetBox Agent Optimization
 
-  # Only 8 tools are explicitly wrapped:
-  netbox_agent = async_create_deep_agent([
-      netbox_get_server_health,      # System tool
-      netbox_get_site_info,          # Site management
-      netbox_list_sites,             # Site discovery
-      netbox_get_device_info,        # Device details
-      netbox_list_devices,           # Device discovery  
-      netbox_get_device_basic_info,  # Lightweight device info
-      netbox_list_device_roles,      # Device role management
-      netbox_list_device_types       # Device type catalog
-  ])
+Claude's Prompt Caching feature, now Generally Available on the Anthropic API, presents a significant opportunity to optimize the NetBox agent implementation. By caching frequently reused context, we can achieve signifiicant cost reduction and latency reduction for the NetBox infrastructure management system.
 
-# We want to develop Dynamic Tool Generation
+# Current NetBox Agent Architecture Analysis
+The current NetBox agent includes substantial static context that gets sent with every API call:
 
-# Phase 1: Implement Dynamic Wrapper Generation                                     
-1. Create a dynamic wrapper generator that reads the TOOL_REGISTRY                
-2. Generate async wrapper functions for all 62 tools automatically                
-3. Include proper parameter mapping and type checking                             
-4. Handle dependency injection (NetBox client) transparently
+1. **Enhanced Instructions** (~2,000 tokens)
+   - Agent role and goals
+   - Tool categories and descriptions
+   - Tool selection strategies
+   - Response formatting guidelines
 
-# Phase 2: Update Agent Configuration                                               
-1. Replace manual tool list with dynamically generated tools                      
-2. Update agent instructions to reflect actual available tools                    
-3. Organize tools by category for better discoverability                          
-4. Add category-specific guidance in instructions
+2. **Tool Definitions** (~15,000-20,000 tokens)
+   - 64 dynamically generated tool descriptions
+   - Parameter specifications for each tool
+   - Tool discovery functions
 
-# Phase 3: Enhanced Tool Discovery                                                  
-1. Add tool discovery capabilities to the agent                                   
-2. Allow agent to list available tools by category                                
-3. Implement intelligent tool selection based on query analysis                   
-4. Add fallback mechanisms for tool family switching
+3. **Conversation History** (Variable, grows with each turn)
+   - Previous messages and tool calls
+   - Context accumulation over time
 
+# Prompt Caching Implementation Strategy
+### 1. What to Cache
+
+For the NetBox agent, the following components should be cached:
+
+```python
+# Cacheable components (static across requests)
+cache_components = {
+    "system_prompt": enhanced_instructions,        # ~2,000 tokens
+    "tool_definitions": all_tool_descriptions,     # ~15,000-20,000 tokens
+    "netbox_categories": tool_category_metadata,   # ~500 tokens
+}
+```
+We want to implement -
+1. **Cache static components:**
+   - Enhanced instructions
+   - Tool definitions
+   - Category metadata
+2. **Implement conversation caching:**
+   - Cache conversation history after 3+ turns
+   - Use 1-hour cache for long sessions
+   - **Add cache monitoring:**
+3. **Advanced Optimization**
+    - Implement dynamic cache duration:
+    - Use 5-minute cache for quick queries
+    - Use 1-hour cache for analysis sessions
 
 ## EXAMPLES:
 A list of example netbox queries can be found here - /home/ola/dev/netboxdev/netbox-mcp-docs/netbox-queries
 
 ## DOCUMENTATION:
+- Information regarding Claude API caching can be found here - https://docs.claude.com/en/docs/build-with-claude/prompt-caching & https://www.anthropic.com/news/prompt-caching
 - Information regarding the deepagents application code base currently developed can be found here - url:https://blog.langchain.com/deep-agents/ & https://docs.langchain.com/labs/deep-agents/overview
 The netbox mcp server application used can be located here - /home/ola/dev/netboxdev/netbox-mcp
+This is the information regarding The NetBox Dynamic Agent - (examples/netbox/NETBOX_AGENT_TECHNICAL_REPORT.md)
 
 ## OTHER CONSIDERATIONS:
-The netbox mcp server provides READ ONLY netbox api tools.
+# Potential Issues and Solutions
+
+1. **Cache misses on minor changes:**
+   - Solution: Separate static and dynamic content clearly
+   - Use versioning for instruction updates
+
+2. **Memory pressure with large contexts:**
+   - Solution: Implement cache eviction strategy
+   - Monitor token usage per session
+
+3. **Cost spike from cache writes:**
+   - Solution: Batch similar requests
+   - Implement request deduplication
+
+# The netbox mcp server provides READ ONLY netbox api tools.
 Do NOT make any changes to the codebase in /home/ola/dev/netboxdev/netbox-mcp

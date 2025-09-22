@@ -38,6 +38,15 @@ Template optimized for AI agents to implement features with sufficient context a
 - doc: https://github.com/Deployment-Team/netbox-mcp/wiki/Bridget-Auto-Context 
   important: This documentation covers a version of the mcp server that covers CRUD tools. The version of this netbox mcp server ONLY handles read only tools.
 
+- doc: examples/netbox/NETBOX_AGENT_TECHNICAL_REPORT.md
+  important: This documentation covers the logic governing the NetBox Dynamic Agent Architecture and Operation
+
+- url: https://www.anthropic.com/news/prompt-caching
+  why: This contains information regarding cluade api caching
+
+- url: https://docs.claude.com/en/docs/build-with-claude/prompt-caching
+  why: This contains more information regarding cluade api caching
+
 ```
 
 ## Final validation Checklist
