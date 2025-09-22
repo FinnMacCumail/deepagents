@@ -211,8 +211,8 @@ async def get_tool_details(tool_name: str):
    - Add these as agent tools
 
 7. **Testing and validation**
-   - Test with example queries from `/home/ola/dev/netboxdev/netbox-mcp-docs/netbox-queries`
-   - Verify all tools are accessible
+   - Test with some example queries from `/home/ola/dev/netboxdev/netbox-mcp-docs/netbox-queries`
+   - Verify tools are accessible
    - Test error handling
 
 ## Key Files to Reference
