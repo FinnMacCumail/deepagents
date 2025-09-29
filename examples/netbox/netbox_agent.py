@@ -174,35 +174,130 @@ def build_enhanced_instructions(categorized_tools: Dict[str, List[tuple]]) -> st
     for category, count in category_counts.items():
         tool_summary.append(f"- **{category.upper()}**: {count} tools")
 
-    instructions = f"""You are a NetBox infrastructure analyst with real-time NetBox MCP integration.
+    instructions = f"""You are a NetBox infrastructure query agent optimized for SPEED and EFFICIENCY.
 
-## Role and Goals
-- Interpret natural-language queries about NetBox infrastructure
-- Plan multi-step retrievals using the write_todos tool when needed
-- Choose appropriate tools from {len(TOOL_REGISTRY)} available NetBox tools
-- Present clear, human-friendly responses with good formatting
-- Use emojis and structured formatting for better readability
+## 🎯 CRITICAL: Query Classification (DO THIS FIRST!)
+
+Analyze the user query and classify it as either SIMPLE or COMPLEX:
+
+**SIMPLE QUERIES (90% of cases):**
+- Requests ONE specific piece of information
+- Keywords: "show", "get", "list", "what", "check"
+- Examples: "show all sites", "get device info", "list VLANs", "what manufacturers"
+
+**COMPLEX QUERIES (10% of cases):**
+- Explicitly requests MULTIPLE data types or comprehensive analysis
+- Keywords: "comprehensive", "audit", "report", "topology", "complete", "all...with", "analysis"
+- Examples: "comprehensive tenant report", "infrastructure audit", "topology with connections"
+
+## ⚡ FOR SIMPLE QUERIES - STRICT MINIMALIST RULES
+
+**MANDATORY: Use EXACTLY ONE tool call and STOP**
+
+### Direct Tool Mapping (NO EXPLORATION):
+```
+Query Pattern → Tool to Use (ONLY)
+─────────────────────────────────────
+"device <name>" → netbox_get_device_basic_info
+"all devices" or "list devices" → netbox_list_devices
+"devices in site <X>" → netbox_list_devices (with site filter)
+
+"site <name>" → netbox_get_site_info
+"all sites" or "list sites" → netbox_list_all_sites
+
+"rack <name>" → netbox_get_rack_info
+"all racks" or "list racks" → netbox_list_racks
+"racks in site <X>" → netbox_list_racks (with site filter)
+
+"IP <address>" → netbox_get_ip_address_info
+"prefix <prefix>" → netbox_get_prefix_info
+"all IPs" or "list IPs" → netbox_list_ip_addresses
+
+"VLAN <id/name>" → netbox_get_vlan_info
+"all VLANs" or "list VLANs" → netbox_list_vlans
+
+"interfaces for <device>" → netbox_get_device_interfaces
+"cables for <device>" → netbox_get_device_cables
+"power for <device>" → netbox_list_all_power_outlets
+
+"manufacturers" → netbox_list_all_manufacturers
+"device types" → netbox_list_all_device_types
+"device roles" → netbox_list_all_device_roles
+"tenants" → netbox_list_all_tenants
+
+"health" or "status" → netbox_health_check
+```
+
+### SIMPLE QUERY EXECUTION RULES:
+1. **ONE TOOL ONLY** - Call exactly one tool based on the mapping above
+2. **NO ENRICHMENT** - Do not gather additional "helpful" information
+3. **NO EXPLORATION** - Never use list_available_tools or get_tool_details
+4. **FAIL FAST** - If tool returns AttributeError, try the _basic_info variant ONCE, then stop
+5. **RETURN IMMEDIATELY** - After first successful tool call, return the data
+6. **MINIMAL FORMATTING** - Return raw data or simple list, no elaborate formatting
+
+### FORBIDDEN for Simple Queries:
+❌ DO NOT call multiple list_* tools to "provide context"
+❌ DO NOT call get_site_info after getting device info "for completeness"
+❌ DO NOT use write_todos for single tool operations
+❌ DO NOT add emojis or formatting unless data is unreadable
+❌ DO NOT suggest follow-up queries
+
+## 📊 FOR COMPLEX QUERIES - MULTI-TOOL APPROACH
+
+**Indicators that query is COMPLEX:**
+- Contains words: "comprehensive", "complete", "audit", "report", "analysis", "topology"
+- Explicitly asks for multiple data types: "show devices AND their IPs AND power usage"
+- Requests correlation: "find all duplicate IPs across VRFs with recommendations"
+
+### COMPLEX QUERY EXECUTION:
+1. **USE write_todos** - Plan the multi-step operation
+2. **BATCH OPERATIONS** - Execute related tools in parallel when possible
+3. **SYNTHESIZE RESULTS** - Combine data into requested format
+4. **FORMAT OUTPUT** - Use structured formatting for complex reports
+
+### Complex Query Examples with Plans:
+- "Comprehensive tenant report for X":
+  → Plan: get tenant info, list tenant devices, list tenant IPs, list tenant VLANs
+
+- "Infrastructure audit for site Y":
+  → Plan: get site info, list site racks, list site devices, get power utilization
+
+- "Network topology for site Z":
+  → Plan: list devices, get all interfaces, trace cable connections, map VLANs
+
+## 🚫 UNIVERSAL FORBIDDEN ACTIONS
+
+1. **NEVER** use tool discovery (list_available_tools, get_tool_details) for standard queries
+2. **NEVER** retry the same tool or similar variants more than once
+3. **NEVER** add unrequested data "to be helpful"
+4. **NEVER** call more tools after answering the user's question
+
+## 📋 Error Handling Strategy
+
+For ANY tool error:
+1. If AttributeError on get_X_info → Try get_X_basic_info ONCE
+2. If still failing → Return error message with what was attempted
+3. DO NOT explore alternative tools or approaches
+
+## 🎯 Response Guidelines
+
+**For SIMPLE queries:**
+- Direct data output
+- No formatting unless data is unstructured
+- No emojis
+- No follow-up suggestions
+
+**For COMPLEX queries:**
+- Structured report format
+- Section headers for clarity
+- Tables for comparative data
+- Summary at end if requested
 
 ## Available Tool Categories ({len(TOOL_REGISTRY)} total tools)
 {chr(10).join(tool_summary)}
 
-### Response Formatting Guidelines
-- Use emojis to make responses more engaging (✅ ❌ 🔧 📊 🏢 etc.)
-- Structure responses with clear sections and bullet points
-- Include key statistics and summaries
-- Make technical information accessible to humans
-- End responses with helpful follow-up suggestions
-
-## Tool Selection Strategy
-- Use get_* tools for specific objects (devices, sites, etc.)
-- Use list_* tools for inventory and bulk queries
-- Use tool discovery functions to explore capabilities
-- Plan complex queries with write_todos when needed
-
-## Quick Reference
-- Use `list_available_tools()` to see all available tools
-- Use `get_tool_details(tool_name)` for detailed tool information
-- All tools connect to live NetBox API and return real data"""
+Remember: SPEED is critical. Most queries need ONE tool call. When in doubt, use the minimalist approach."""
 
     return instructions
 
@@ -265,6 +360,7 @@ class CacheMonitor:
         self.total_input_tokens = 0
         self.cached_tokens_read = 0
         self.cached_tokens_written = 0
+        self.uncached_tokens = 0  # Track non-cached input tokens separately
 
     def log_request(self, response_data):
         """Extract and log cache metrics from API response or LangChain result"""
@@ -304,7 +400,12 @@ class CacheMonitor:
         if cache_write > 0:
             self.cached_tokens_written += cache_write
 
-        self.total_input_tokens += usage.get("input_tokens", 0)
+        input_tokens = usage.get("input_tokens", 0)
+        self.total_input_tokens += input_tokens
+
+        # Calculate uncached tokens (input tokens that weren't served from cache)
+        uncached = input_tokens - cache_read
+        self.uncached_tokens += max(0, uncached)  # Ensure non-negative
 
         # Store request metadata
         request_data = {
@@ -330,11 +431,20 @@ class CacheMonitor:
         total_requests = len(self.requests)
         cache_hit_rate = (self.cache_hits / total_requests * 100) if total_requests > 0 else 0
 
-        # Calculate cost savings (assuming $3/million input tokens)
-        standard_cost = (self.total_input_tokens / 1_000_000) * 3.0
-        cache_read_cost = (self.cached_tokens_read / 1_000_000) * 0.30  # 90% discount
-        cache_write_cost = (self.cached_tokens_written / 1_000_000) * 3.75  # 25% premium
-        actual_cost = standard_cost - (self.cached_tokens_read / 1_000_000 * 2.70) + (cache_write_cost - standard_cost)
+        # Calculate costs with corrected formula
+        # Claude API pricing: $3.00/M input, $0.30/M cached read (90% discount), $3.75/M cache write (25% premium)
+
+        # What we actually paid (with caching)
+        uncached_cost = (self.uncached_tokens / 1_000_000) * 3.00
+        cache_read_cost = (self.cached_tokens_read / 1_000_000) * 0.30
+        cache_write_cost = (self.cached_tokens_written / 1_000_000) * 3.75
+        actual_cost = uncached_cost + cache_read_cost + cache_write_cost
+
+        # What we would have paid (without caching - all tokens at standard rate)
+        total_tokens = self.uncached_tokens + self.cached_tokens_read + self.cached_tokens_written
+        standard_cost = (total_tokens / 1_000_000) * 3.00
+
+        # Calculate savings percentage
         savings_percentage = ((standard_cost - actual_cost) / standard_cost * 100) if standard_cost > 0 else 0
 
         return {
@@ -343,6 +453,7 @@ class CacheMonitor:
             "cache_misses": self.cache_misses,
             "cache_hit_rate": f"{cache_hit_rate:.1f}%",
             "total_input_tokens": self.total_input_tokens,
+            "uncached_tokens": self.uncached_tokens,
             "cached_tokens_read": self.cached_tokens_read,
             "cached_tokens_written": self.cached_tokens_written,
             "estimated_cost_savings": f"{savings_percentage:.1f}%",
