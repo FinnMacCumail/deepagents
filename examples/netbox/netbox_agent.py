@@ -753,9 +753,9 @@ def create_netbox_subagents():
             "description": "Virtual infrastructure specialist. Handles VMs, clusters, and virtual interfaces. Returns structured virtualization data.",
             "prompt": virtualization_prompt,
             "tools": [
-                # Virtual machine management (3 tools)
+                # Virtual machine management (4 tools)
                 "netbox_list_all_virtual_machines", "netbox_get_virtual_machine_info",
-                "netbox_get_vm_interface_info",
+                "netbox_get_vm_interface_info", "netbox_list_all_vm_interfaces",
 
                 # Cluster management (6 tools)
                 "netbox_list_all_clusters", "netbox_get_cluster_info",
@@ -763,10 +763,7 @@ def create_netbox_subagents():
                 "netbox_list_all_cluster_types", "netbox_get_cluster_type_info",
 
                 # Virtual disk management (2 tools)
-                "netbox_list_all_virtual_disks", "netbox_get_virtual_disk_info",
-
-                # Platform management (1 tool)
-                "netbox_list_all_platforms"
+                "netbox_list_all_virtual_disks", "netbox_get_virtual_disk_info"
             ]  # Total: 12 Virtualization tools
         },
         {
