@@ -31,8 +31,14 @@ Template optimized for AI agents to implement features with sufficient context a
 # MUST READ - Include these in your context window
 - url: https://github.com/langchain-ai/deepagents
   why: This is the repo that the current deep agents code base is cloned from
-  
+
+- url: https://github.com/langchain-ai/deep-agents-from-scratch/blob/main/notebooks/4_full_agent.ipynb
+  why: This will provide guidance on how to develop multi domain netbox queries
 - dir: /home/ola/dev/netboxdev/
+
+- url: /home/ola/dev/netboxdev/netbox-mcp-docs/Cross-Domain-Queries.md
+  why: A list of Cross Domain Queries
+
   why: This is the location of the netbox mcp server that provides readonly mcp tools to the deep agents application.
   
 - doc: https://github.com/Deployment-Team/netbox-mcp/wiki/Bridget-Auto-Context 
@@ -41,11 +47,6 @@ Template optimized for AI agents to implement features with sufficient context a
 - doc: examples/netbox/NETBOX_AGENT_TECHNICAL_REPORT.md
   important: This documentation covers the logic governing the NetBox Dynamic Agent Architecture and Operation
 
-- url: https://www.anthropic.com/news/prompt-caching
-  why: This contains information regarding cluade api caching
-
-- url: https://docs.claude.com/en/docs/build-with-claude/prompt-caching
-  why: This contains more information regarding cluade api caching
 
 ```
 

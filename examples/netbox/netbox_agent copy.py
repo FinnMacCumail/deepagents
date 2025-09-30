@@ -4,21 +4,10 @@ import asyncio
 import inspect
 import json
 import time
-from typing import Optional, Dict, Any, List, Callable, Tuple, Annotated
-
-# Add deepagents src to path if not already there
-DEEPAGENTS_SRC_PATH = "/home/ola/dev/rnd/deepagents/src"
-if DEEPAGENTS_SRC_PATH not in sys.path:
-    sys.path.insert(0, DEEPAGENTS_SRC_PATH)
-
+from typing import Optional, Dict, Any, List, Callable, Tuple
 from deepagents import async_create_deep_agent
 from deepagents.cached_model import get_cached_model
-from deepagents.state import DeepAgentState
 from langchain_core.tools import tool
-from langchain_core.tools import InjectedToolCallId
-from langchain_core.messages import ToolMessage
-from langgraph.prebuilt import InjectedState
-from langgraph.types import Command
 
 # Add netbox-mcp to path if not already there
 NETBOX_MCP_PATH = "/home/ola/dev/netboxdev/netbox-mcp"
@@ -28,164 +17,6 @@ if NETBOX_MCP_PATH not in sys.path:
 from netbox_mcp import NetBoxClient, load_config
 from netbox_mcp.tools import load_all_tools
 from netbox_mcp.registry import TOOL_REGISTRY, get_tool_by_name
-
-# Import prompts from centralized module
-from prompts import (
-    NETBOX_SUPERVISOR_INSTRUCTIONS,
-    SUB_AGENT_PROMPT_TEMPLATE,
-    THINK_TOOL_DESCRIPTION
-)
-
-"""
-PARALLEL EXECUTION PATTERNS FOR CROSS-DOMAIN QUERIES
-
-Pattern 1: Independent Domain Analysis
-When domains can be queried without dependencies, execute in parallel:
-
-# Example: Tenant infrastructure analysis
-async def analyze_tenant_infrastructure(tenant_name: str):
-    # PARALLEL execution - all three run simultaneously
-    await asyncio.gather(
-        task(
-            description=f"Get complete details for tenant '{tenant_name}' including groups and contacts",
-            subagent_type="tenancy-specialist"
-        ),
-        task(
-            description=f"List all devices assigned to tenant '{tenant_name}' with rack and site information",
-            subagent_type="dcim-specialist"
-        ),
-        task(
-            description=f"Get all IP addresses and VLANs allocated to tenant '{tenant_name}'",
-            subagent_type="ipam-specialist"
-        )
-    )
-    # After parallel execution, use think() to assess and synthesize
-
-Pattern 2: VM Network Topology
-When tracing relationships across domains:
-
-# Step 1: Get VM details (single domain)
-vm_info = await task(
-    description="Get virtual machine 'web-app-02' details including cluster and interfaces",
-    subagent_type="virtualization-specialist"
-)
-
-# Step 2: Think and identify next parallel queries
-await think(
-    reflection='''Retrieved VM details for web-app-02, including cluster and interfaces.
-    Now need to trace to physical infrastructure.
-
-    Next parallel queries:
-    - Get physical host and rack location from DCIM for the cluster
-    - Get IP and VLAN configuration from IPAM for the VM interfaces'''
-)
-
-# Step 3: Parallel queries for related information
-await asyncio.gather(
-    task(
-        description=f"Get physical host and rack location for cluster {vm_info['cluster']}",
-        subagent_type="dcim-specialist"
-    ),
-    task(
-        description=f"Get IP and VLAN configuration for VM interfaces {vm_info['interfaces']}",
-        subagent_type="ipam-specialist"
-    )
-)
-
-Pattern 3: Site Utilization with Multi-Domain Metrics
-For comprehensive analysis requiring all domains:
-
-# MAXIMUM parallel execution (all 4 domains)
-site_data = await asyncio.gather(
-    task(
-        description="Get complete device inventory for site 'Butler Communications' with power usage",
-        subagent_type="dcim-specialist"
-    ),
-    task(
-        description="Calculate IP utilization and VLAN usage for site 'Butler Communications'",
-        subagent_type="ipam-specialist"
-    ),
-    task(
-        description="List all tenants with resources at site 'Butler Communications'",
-        subagent_type="tenancy-specialist"
-    ),
-    task(
-        description="Get all virtual machines hosted at site 'Butler Communications'",
-        subagent_type="virtualization-specialist"
-    )
-)
-
-# Strategic reflection after parallel execution
-await think(
-    reflection='''Completed parallel data collection from all 4 domains for site Butler Communications.
-
-    Have gathered:
-    - Device inventory and power usage (DCIM)
-    - IP utilization and VLAN usage (IPAM)
-    - Tenant resource allocation (Tenancy)
-    - Virtual machine inventory (Virtualization)
-
-    Next steps: Correlate devices with VMs, map tenants to resources, calculate totals.'''
-)
-
-Example Cross-Domain Query Flow with Strategic Thinking:
-# Query: "Show tenant 'Research Lab' infrastructure footprint across all sites"
-
-# 1. Strategic Assessment
-await think(
-    reflection='''Analyzing query: 'Show tenant Research Lab infrastructure footprint across all sites'
-    This spans Tenancy + DCIM + IPAM domains and requires site correlation.
-
-    Information gaps:
-    - Need tenant details from tenancy domain
-    - Need device inventory from DCIM domain
-    - Need network allocations from IPAM domain
-    - Need to correlate by site
-
-    Next steps: Execute parallel domain queries, then synthesize results.'''
-)
-
-# 2. Planning
-await write_todos([
-    {"content": "Get Research Lab tenant information", "status": "in_progress"},
-    {"content": "Query devices, IPs, VLANs in parallel", "status": "pending"},
-    {"content": "Correlate resources by site", "status": "pending"},
-    {"content": "Generate infrastructure footprint report", "status": "pending"}
-])
-
-# 3. Parallel Domain Delegation (single response, multiple task calls)
-results = await asyncio.gather(
-    task(
-        description="Get complete information for tenant 'Research Lab' including all resource reports",
-        subagent_type="tenancy-specialist"
-    ),
-    task(
-        description="List all devices assigned to tenant 'Research Lab' with site, rack, and type details",
-        subagent_type="dcim-specialist"
-    ),
-    task(
-        description="Get all IP addresses, prefixes, and VLANs allocated to tenant 'Research Lab'",
-        subagent_type="ipam-specialist"
-    )
-)
-
-# 4. Strategic Reflection
-await think(
-    reflection='''Received comprehensive data from 3 parallel domain queries.
-
-    Current state:
-    - Have tenant overview and resource reports from tenancy-specialist
-    - Have complete device inventory with site/rack details from dcim-specialist
-    - Have IP/prefix/VLAN allocations from ipam-specialist
-
-    Gap identified: Need to correlate all resources by site for infrastructure footprint view.
-
-    Final steps: Group resources by site, calculate per-site metrics, format comprehensive report.'''
-)
-
-# 5. Synthesis and Response
-# Agent combines results into cohesive infrastructure footprint report
-"""
 
 # Load environment variables from .env file
 try:
@@ -633,160 +464,6 @@ class CacheMonitor:
 # Global cache monitor instance
 cache_monitor = CacheMonitor()
 
-def create_netbox_subagents():
-    """Create domain-specific sub-agents with precise instructions"""
-
-    # Format sub-agent prompts from template
-    dcim_prompt = SUB_AGENT_PROMPT_TEMPLATE.format(
-        domain="DCIM",
-        expertise_areas="physical infrastructure management",
-        detailed_expertise="""
-        - Device inventory: servers, switches, routers, PDUs
-        - Rack management: layouts, elevations, utilization
-        - Site topology: locations, regions, hierarchies
-        - Cable management: connections, paths, types
-        - Power distribution: outlets, feeds, consumption
-        - Physical interfaces: ports, connections, speeds"""
-    )
-
-    ipam_prompt = SUB_AGENT_PROMPT_TEMPLATE.format(
-        domain="IPAM",
-        expertise_areas="network addressing and allocation",
-        detailed_expertise="""
-        - IP address management: assignments, availability, conflicts
-        - Prefix allocation: subnets, utilization, hierarchies
-        - VLAN configuration: IDs, names, groups, assignments
-        - VRF segmentation: routing domains, isolation
-        - Address resolution: DNS, DHCP reservations
-        - Network services: NAT pools, anycast addresses"""
-    )
-
-    tenancy_prompt = SUB_AGENT_PROMPT_TEMPLATE.format(
-        domain="Tenancy",
-        expertise_areas="organizational structure and ownership",
-        detailed_expertise="""
-        - Tenant management: organizations, departments, customers
-        - Resource ownership: device assignments, IP allocations
-        - Contact information: technical, administrative, billing
-        - Organizational hierarchy: parent-child relationships
-        - Resource quotas: limits, allocations, usage
-        - Multi-tenancy boundaries: isolation, sharing"""
-    )
-
-    virtualization_prompt = SUB_AGENT_PROMPT_TEMPLATE.format(
-        domain="Virtualization",
-        expertise_areas="virtual infrastructure management",
-        detailed_expertise="""
-        - Virtual machines: instances, configurations, states
-        - Cluster management: hosts, resources, availability
-        - Virtual interfaces: vNICs, configurations, attachments
-        - VM-to-host mapping: placement, migration, affinity
-        - Resource allocation: CPU, memory, storage
-        - Virtual networking: vSwitches, port groups, overlays"""
-    )
-
-    return [
-        {
-            "name": "dcim-specialist",
-            "description": "Physical infrastructure specialist. Handles devices, racks, sites, cables, and power. Returns structured DCIM data.",
-            "prompt": dcim_prompt,
-            "tools": [
-                # Device management (11 tools)
-                "netbox_list_all_devices", "netbox_get_device_info", "netbox_get_device_basic_info",
-                "netbox_get_device_interfaces", "netbox_get_device_cables", "netbox_list_device_inventory",
-                "netbox_list_all_device_types", "netbox_get_device_type_info", "netbox_list_all_device_roles",
-                "netbox_list_all_manufacturers", "netbox_list_inventory_item_templates_for_device_type",
-
-                # Rack management (3 tools)
-                "netbox_list_all_racks", "netbox_get_rack_inventory", "netbox_get_rack_elevation",
-
-                # Site management (2 tools)
-                "netbox_list_all_sites", "netbox_get_site_info",
-
-                # Cable management (3 tools)
-                "netbox_list_all_cables", "netbox_get_cable_info", "netbox_list_all_power_cables",
-
-                # Power management (9 tools)
-                "netbox_list_all_power_outlets", "netbox_get_power_outlet_info",
-                "netbox_list_all_power_ports", "netbox_get_power_port_info",
-                "netbox_list_all_power_feeds", "netbox_get_power_feed_info",
-                "netbox_list_all_power_panels", "netbox_get_power_panel_info",
-                "netbox_get_power_connection_info",
-
-                # Module management (9 tools)
-                "netbox_list_all_modules", "netbox_get_module_info", "netbox_get_module_bay_info",
-                "netbox_list_device_modules", "netbox_list_device_module_bays",
-                "netbox_list_all_module_types", "netbox_get_module_type_info",
-                "netbox_list_all_module_type_profiles", "netbox_get_module_type_profile_info"
-            ]  # Total: 37 DCIM tools
-        },
-        {
-            "name": "ipam-specialist",
-            "description": "Network addressing specialist. Handles IPs, prefixes, VLANs, and VRFs. Returns structured IPAM data.",
-            "prompt": ipam_prompt,
-            "tools": [
-                # IP management (3 tools)
-                "netbox_find_available_ip", "netbox_find_duplicate_ips", "netbox_get_ip_usage",
-
-                # Prefix management (2 tools)
-                "netbox_list_all_prefixes", "netbox_get_prefix_utilization",
-
-                # VLAN management (2 tools)
-                "netbox_list_all_vlans", "netbox_find_available_vlan_id",
-
-                # VRF management (1 tool)
-                "netbox_list_all_vrfs"
-            ]  # Total: 8 IPAM tools
-        },
-        {
-            "name": "tenancy-specialist",
-            "description": "Organizational structure specialist. Handles tenants, ownership, and contacts. Returns structured tenancy data.",
-            "prompt": tenancy_prompt,
-            "tools": [
-                "netbox_list_all_tenants",
-                "netbox_list_all_tenant_groups",
-                "netbox_get_tenant_resource_report"
-            ]  # Total: 3 Tenancy tools
-        },
-        {
-            "name": "virtualization-specialist",
-            "description": "Virtual infrastructure specialist. Handles VMs, clusters, and virtual interfaces. Returns structured virtualization data.",
-            "prompt": virtualization_prompt,
-            "tools": [
-                # Virtual machine management (3 tools)
-                "netbox_list_all_virtual_machines", "netbox_get_virtual_machine_info",
-                "netbox_get_vm_interface_info",
-
-                # Cluster management (6 tools)
-                "netbox_list_all_clusters", "netbox_get_cluster_info",
-                "netbox_list_all_cluster_groups", "netbox_get_cluster_group_info",
-                "netbox_list_all_cluster_types", "netbox_get_cluster_type_info",
-
-                # Virtual disk management (2 tools)
-                "netbox_list_all_virtual_disks", "netbox_get_virtual_disk_info",
-
-                # Platform management (1 tool)
-                "netbox_list_all_platforms"
-            ]  # Total: 12 Virtualization tools
-        },
-        {
-            "name": "system-specialist",
-            "description": "System monitoring and metadata specialist. Handles health checks and journal entries.",
-            "prompt": SUB_AGENT_PROMPT_TEMPLATE.format(
-                domain="System",
-                expertise_areas="system monitoring and metadata",
-                detailed_expertise="""
-                - System health monitoring
-                - Journal entries and audit logs
-                - System status and diagnostics"""
-            ),
-            "tools": [
-                "netbox_health_check",
-                "netbox_list_all_journal_entries"
-            ]  # Total: 2 System/Extras tools
-        }
-    ]
-
 def create_netbox_agent_with_all_tools(
     enable_caching: bool = True,
     cache_ttl: str = "1h",  # Use 1-hour cache for long sessions
@@ -826,18 +503,12 @@ def create_netbox_agent_with_all_tools(
     tools_text = f"\n## Available Tools ({len(tool_definitions)} total)\n"
     tools_text += json.dumps(tool_definitions, indent=2)
 
-    # Create sub-agents with precise domain expertise
-    netbox_subagents = create_netbox_subagents()
+    # Combine instructions with tool definitions for caching
+    # The CachedChatAnthropic will automatically add cache_control markers
+    full_instructions = enhanced_instructions + tools_text
 
-    # Prepare enhanced instructions combining existing with new strategic patterns
-    full_instructions = enhanced_instructions + "\n\n" + NETBOX_SUPERVISOR_INSTRUCTIONS + tools_text
-
-    # Add strategic tools to available tools
     tool_list = list(all_tools.values())
-    tool_list.extend([list_available_tools, get_tool_details, show_cache_metrics, think, store_query])
-
-    # Update think tool with proper description
-    think.__doc__ = THINK_TOOL_DESCRIPTION
+    tool_list.extend([list_available_tools, get_tool_details, show_cache_metrics])
 
     print(f"📊 Cache Configuration:")
     print(f"  - Caching Enabled: {enable_caching}")
@@ -846,7 +517,6 @@ def create_netbox_agent_with_all_tools(
     print(f"  - Tools Definition Size: ~{len(tools_text)//4} tokens")
     print(f"  - Total System Message: ~{len(full_instructions)//4} tokens")
     print(f"  - Will be cached: {'✅ YES' if enable_caching and len(full_instructions) > 4096 else '❌ NO'}")
-    print(f"  - Sub-agents configured: {len(netbox_subagents)} domain specialists")
 
     # Use cached model if caching is enabled
     if enable_caching:
@@ -857,18 +527,13 @@ def create_netbox_agent_with_all_tools(
     else:
         model = None  # Use default model
 
-    # Create agent with strategic capabilities
-    # Note: We do NOT restrict main_agent_tools to allow fallback for simple queries
-    # Sub-agents still get filtered tool sets for their domains
+    # Create agent with model override
+    # Use the full_instructions that includes tool definitions for caching
     agent = async_create_deep_agent(
         tool_list,
         full_instructions,
         model=model,
-        subagents=netbox_subagents  # Domain specialists with precise prompts
-        # main_agent_tools parameter omitted - main agent has access to all tools
-        # This allows: 1) Direct tool use for simple queries
-        #              2) Fallback if sub-agent delegation fails
-        #              3) Tools not in sub-agents (discovery tools) remain accessible
+        subagents=[]
     ).with_config({"recursion_limit": 1000})
 
     # Store caching config on agent for reference
@@ -886,43 +551,6 @@ def create_netbox_agent_with_all_tools(
 async def show_cache_metrics() -> Dict[str, Any]:
     """Display detailed cache performance metrics"""
     return cache_monitor.get_metrics()
-
-# Add strategic think tool (following deep-agents-from-scratch pattern)
-@tool
-async def think(reflection: str) -> str:
-    """Strategic reflection tool for analyzing progress and planning next steps.
-
-    Use this to:
-    - Reflect on what information you've gathered
-    - Assess whether you have enough to answer the query
-    - Identify what's still missing
-    - Decide on next steps strategically
-
-    The reflection should include your analysis of the original query
-    and your current understanding of what's needed.
-    """
-    return f"Reflection recorded: {reflection}"
-
-# Optional: Store query in virtual file system for reference
-@tool
-async def store_query(
-    state: Annotated[DeepAgentState, InjectedState],
-    tool_call_id: Annotated[str, InjectedToolCallId]
-) -> Command:
-    """Store the user query in virtual filesystem for reference throughout execution."""
-    if state.get("messages") and len(state["messages"]) > 0:
-        user_query = state["messages"][0].content
-        files = state.get("files", {})
-        files["query.txt"] = user_query
-        return Command(
-            update={
-                "files": files,
-                "messages": [
-                    ToolMessage(f"Stored query for reference", tool_call_id=tool_call_id)
-                ]
-            }
-        )
-    return Command(update={})
 
 # Create the global agent instance (will be initialized in main or when imported)
 
