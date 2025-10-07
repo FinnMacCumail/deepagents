@@ -578,9 +578,16 @@ class CacheMonitor:
 cache_monitor = CacheMonitor()
 
 def create_netbox_subagents():
-    """Create domain-specific sub-agents with precise instructions"""
+    """Create domain-specific sub-agents for simple MCP (3 tools each)"""
 
-    # Format sub-agent prompts from template
+    # All specialists use the same 3 simple MCP tools
+    simple_tools = [
+        "netbox_get_objects",
+        "netbox_get_object_by_id",
+        "netbox_get_changelogs"
+    ]
+
+    # Format sub-agent prompts with object_type guidance
     dcim_prompt = SUB_AGENT_PROMPT_TEMPLATE.format(
         domain="DCIM",
         expertise_areas="physical infrastructure management",
@@ -590,7 +597,18 @@ def create_netbox_subagents():
         - Site topology: locations, regions, hierarchies
         - Cable management: connections, paths, types
         - Power distribution: outlets, feeds, consumption
-        - Physical interfaces: ports, connections, speeds"""
+        - Physical interfaces: ports, connections, speeds
+
+        **Your object_types**: devices, sites, racks, cables, interfaces,
+        manufacturers, device-types, device-roles, platforms, power-outlets,
+        power-ports, power-feeds, power-panels, modules, locations,
+        console-ports, console-server-ports, front-ports, inventory-items
+
+        **Examples**:
+        - List devices: netbox_get_objects("devices", {"site": "DM-Akron"})
+        - Get device: netbox_get_object_by_id("devices", 123)
+        - Find racks: netbox_get_objects("racks", {"location": "Building-A"})
+        - List sites: netbox_get_objects("sites", {})"""
     )
 
     ipam_prompt = SUB_AGENT_PROMPT_TEMPLATE.format(
@@ -602,7 +620,17 @@ def create_netbox_subagents():
         - VLAN configuration: IDs, names, groups, assignments
         - VRF segmentation: routing domains, isolation
         - Address resolution: DNS, DHCP reservations
-        - Network services: NAT pools, anycast addresses"""
+        - Network services: NAT pools, anycast addresses
+
+        **Your object_types**: ip-addresses, prefixes, vlans, vlan-groups,
+        vrfs, asns, asn-ranges, aggregates, ip-ranges, services, roles,
+        route-targets, rirs, fhrp-groups
+
+        **Examples**:
+        - Find IPs: netbox_get_objects("ip-addresses", {"vrf": "prod"})
+        - Get prefix: netbox_get_object_by_id("prefixes", 45)
+        - List VLANs: netbox_get_objects("vlans", {"site": "DM-Akron"})
+        - Get VRF: netbox_get_objects("vrfs", {"name": "management"})"""
     )
 
     tenancy_prompt = SUB_AGENT_PROMPT_TEMPLATE.format(
@@ -614,7 +642,15 @@ def create_netbox_subagents():
         - Contact information: technical, administrative, billing
         - Organizational hierarchy: parent-child relationships
         - Resource quotas: limits, allocations, usage
-        - Multi-tenancy boundaries: isolation, sharing"""
+        - Multi-tenancy boundaries: isolation, sharing
+
+        **Your object_types**: tenants, tenant-groups, contacts,
+        contact-groups, contact-roles
+
+        **Examples**:
+        - List tenants: netbox_get_objects("tenants", {})
+        - Get tenant: netbox_get_object_by_id("tenants", 7)
+        - Find contacts: netbox_get_objects("contacts", {"role": "admin"})"""
     )
 
     virtualization_prompt = SUB_AGENT_PROMPT_TEMPLATE.format(
@@ -626,7 +662,32 @@ def create_netbox_subagents():
         - Virtual interfaces: vNICs, configurations, attachments
         - VM-to-host mapping: placement, migration, affinity
         - Resource allocation: CPU, memory, storage
-        - Virtual networking: vSwitches, port groups, overlays"""
+        - Virtual networking: vSwitches, port groups, overlays
+
+        **Your object_types**: virtual-machines, clusters, cluster-groups,
+        cluster-types, vm-interfaces
+
+        **Examples**:
+        - List VMs: netbox_get_objects("virtual-machines", {"cluster": "prod-cluster"})
+        - Get VM: netbox_get_object_by_id("virtual-machines", 89)
+        - Find clusters: netbox_get_objects("clusters", {"site": "DM-Akron"})"""
+    )
+
+    system_prompt = SUB_AGENT_PROMPT_TEMPLATE.format(
+        domain="System",
+        expertise_areas="system monitoring and metadata",
+        detailed_expertise="""
+        - Change audit logs
+        - System status and diagnostics
+        - Historical tracking
+
+        **Your tools**:
+        - netbox_get_changelogs: Get change audit logs with filters
+        - netbox_get_objects: Access any NetBox object type
+
+        **Examples**:
+        - Recent changes: netbox_get_changelogs({"time_after": "2025-09-30T00:00:00Z"})
+        - Deletions: netbox_get_changelogs({"action": "delete"})"""
     )
 
     return [
@@ -634,100 +695,31 @@ def create_netbox_subagents():
             "name": "dcim-specialist",
             "description": "Physical infrastructure specialist. Handles devices, racks, sites, cables, and power. Returns structured DCIM data.",
             "prompt": dcim_prompt,
-            "tools": [
-                # Device management (11 tools)
-                "netbox_list_all_devices", "netbox_get_device_info", "netbox_get_device_basic_info",
-                "netbox_get_device_interfaces", "netbox_get_device_cables", "netbox_list_device_inventory",
-                "netbox_list_all_device_types", "netbox_get_device_type_info", "netbox_list_all_device_roles",
-                "netbox_list_all_manufacturers", "netbox_list_inventory_item_templates_for_device_type",
-
-                # Rack management (3 tools)
-                "netbox_list_all_racks", "netbox_get_rack_inventory", "netbox_get_rack_elevation",
-
-                # Site management (2 tools)
-                "netbox_list_all_sites", "netbox_get_site_info",
-
-                # Cable management (3 tools)
-                "netbox_list_all_cables", "netbox_get_cable_info", "netbox_list_all_power_cables",
-
-                # Power management (9 tools)
-                "netbox_list_all_power_outlets", "netbox_get_power_outlet_info",
-                "netbox_list_all_power_ports", "netbox_get_power_port_info",
-                "netbox_list_all_power_feeds", "netbox_get_power_feed_info",
-                "netbox_list_all_power_panels", "netbox_get_power_panel_info",
-                "netbox_get_power_connection_info",
-
-                # Module management (9 tools)
-                "netbox_list_all_modules", "netbox_get_module_info", "netbox_get_module_bay_info",
-                "netbox_list_device_modules", "netbox_list_device_module_bays",
-                "netbox_list_all_module_types", "netbox_get_module_type_info",
-                "netbox_list_all_module_type_profiles", "netbox_get_module_type_profile_info"
-            ]  # Total: 37 DCIM tools
+            "tools": simple_tools
         },
         {
             "name": "ipam-specialist",
             "description": "Network addressing specialist. Handles IPs, prefixes, VLANs, and VRFs. Returns structured IPAM data.",
             "prompt": ipam_prompt,
-            "tools": [
-                # IP management (3 tools)
-                "netbox_find_available_ip", "netbox_find_duplicate_ips", "netbox_get_ip_usage",
-
-                # Prefix management (2 tools)
-                "netbox_list_all_prefixes", "netbox_get_prefix_utilization",
-
-                # VLAN management (2 tools)
-                "netbox_list_all_vlans", "netbox_find_available_vlan_id",
-
-                # VRF management (1 tool)
-                "netbox_list_all_vrfs"
-            ]  # Total: 8 IPAM tools
+            "tools": simple_tools
         },
         {
             "name": "tenancy-specialist",
             "description": "Organizational structure specialist. Handles tenants, ownership, and contacts. Returns structured tenancy data.",
             "prompt": tenancy_prompt,
-            "tools": [
-                "netbox_list_all_tenants",
-                "netbox_list_all_tenant_groups",
-                "netbox_get_tenant_resource_report"
-            ]  # Total: 3 Tenancy tools
+            "tools": simple_tools
         },
         {
             "name": "virtualization-specialist",
             "description": "Virtual infrastructure specialist. Handles VMs, clusters, and virtual interfaces. Returns structured virtualization data.",
             "prompt": virtualization_prompt,
-            "tools": [
-                # Virtual machine management (3 tools)
-                "netbox_list_all_virtual_machines", "netbox_get_virtual_machine_info",
-                "netbox_get_vm_interface_info",
-
-                # Cluster management (6 tools)
-                "netbox_list_all_clusters", "netbox_get_cluster_info",
-                "netbox_list_all_cluster_groups", "netbox_get_cluster_group_info",
-                "netbox_list_all_cluster_types", "netbox_get_cluster_type_info",
-
-                # Virtual disk management (2 tools)
-                "netbox_list_all_virtual_disks", "netbox_get_virtual_disk_info",
-
-                # Platform management (1 tool)
-                "netbox_list_all_platforms"
-            ]  # Total: 12 Virtualization tools
+            "tools": simple_tools
         },
         {
             "name": "system-specialist",
-            "description": "System monitoring and metadata specialist. Handles health checks and journal entries.",
-            "prompt": SUB_AGENT_PROMPT_TEMPLATE.format(
-                domain="System",
-                expertise_areas="system monitoring and metadata",
-                detailed_expertise="""
-                - System health monitoring
-                - Journal entries and audit logs
-                - System status and diagnostics"""
-            ),
-            "tools": [
-                "netbox_health_check",
-                "netbox_list_all_journal_entries"
-            ]  # Total: 2 System/Extras tools
+            "description": "System monitoring and metadata specialist. Handles changelogs and system queries.",
+            "prompt": system_prompt,
+            "tools": simple_tools
         }
     ]
 
