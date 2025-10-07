@@ -206,11 +206,12 @@ except ImportError:
 # MCP Client Session Management
 # Global MCP session for communicating with simple MCP server
 _mcp_session = None
-_mcp_client = None
+_mcp_stdio_context = None
+_mcp_session_context = None
 
 async def get_mcp_session():
     """Get or create MCP client session connected to simple NetBox MCP server"""
-    global _mcp_session, _mcp_client
+    global _mcp_session, _mcp_stdio_context, _mcp_session_context
 
     if _mcp_session is None:
         # Verify environment variables are set
@@ -229,16 +230,34 @@ async def get_mcp_session():
             }
         )
 
-        # Create stdio client context
-        stdio = stdio_client(server_params)
-        _mcp_client = stdio.__aenter__()  # Enter the async context
-        read, write = await _mcp_client
+        # Create stdio client context and enter it
+        _mcp_stdio_context = stdio_client(server_params)
+        read, write = await _mcp_stdio_context.__aenter__()
 
-        # Create session
-        _mcp_session = ClientSession(read, write)
-        await _mcp_session.__aenter__()  # Initialize session
+        # Create and initialize session
+        _mcp_session_context = ClientSession(read, write)
+        _mcp_session = await _mcp_session_context.__aenter__()
 
     return _mcp_session
+
+async def cleanup_mcp_session():
+    """Clean up MCP session and stdio context"""
+    global _mcp_session, _mcp_stdio_context, _mcp_session_context
+
+    if _mcp_session_context is not None:
+        try:
+            await _mcp_session_context.__aexit__(None, None, None)
+        except Exception as e:
+            print(f"Warning: Error closing MCP session: {e}")
+        _mcp_session_context = None
+        _mcp_session = None
+
+    if _mcp_stdio_context is not None:
+        try:
+            await _mcp_stdio_context.__aexit__(None, None, None)
+        except Exception as e:
+            print(f"Warning: Error closing stdio context: {e}")
+        _mcp_stdio_context = None
 
 async def call_mcp_tool(tool_name: str, arguments: dict) -> dict:
     """Call a tool on the MCP server and return the result"""
@@ -995,23 +1014,38 @@ async def main():
 
     except KeyboardInterrupt:
         print("\n👋 Goodbye!")
+    finally:
+        # Clean up MCP session on exit
+        await cleanup_mcp_session()
 
 # Global agent instance
 netbox_agent = None
 
+async def async_main():
+    """Async entry point for the application"""
+    global netbox_agent
+
+    try:
+        # Check for cache environment variable
+        enable_cache = os.environ.get("NETBOX_CACHE", "true").lower() == "true"
+        cache_duration = os.environ.get("NETBOX_CACHE_TTL", "1h")
+
+        print(f"💾 Prompt Caching: {'Enabled' if enable_cache else 'Disabled'}")
+        if enable_cache:
+            print(f"⏰ Cache Duration: {cache_duration}")
+
+        # Create agent with simple MCP (3 tools)
+        netbox_agent = create_netbox_agent_with_simple_mcp(
+            enable_caching=enable_cache,
+            cache_ttl=cache_duration
+        )
+
+        # Run main interactive loop
+        await main()
+    finally:
+        # Always clean up MCP session on exit
+        await cleanup_mcp_session()
+        print("✅ MCP session cleaned up")
+
 if __name__ == "__main__":
-    # Check for cache environment variable
-    enable_cache = os.environ.get("NETBOX_CACHE", "true").lower() == "true"
-    cache_duration = os.environ.get("NETBOX_CACHE_TTL", "1h")
-
-    print(f"💾 Prompt Caching: {'Enabled' if enable_cache else 'Disabled'}")
-    if enable_cache:
-        print(f"⏰ Cache Duration: {cache_duration}")
-
-    # Create agent with simple MCP (3 tools)
-    netbox_agent = create_netbox_agent_with_simple_mcp(
-        enable_caching=enable_cache,
-        cache_ttl=cache_duration
-    )
-
-    asyncio.run(main())
+    asyncio.run(async_main())
