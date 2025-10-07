@@ -17,6 +17,7 @@ from deepagents.state import DeepAgentState
 from langchain_core.tools import tool
 from langchain_core.tools import InjectedToolCallId
 from langchain_core.messages import ToolMessage
+from langchain_anthropic import ChatAnthropic
 from langgraph.prebuilt import InjectedState
 from langgraph.types import Command
 
@@ -636,6 +637,9 @@ cache_monitor = CacheMonitor()
 def create_netbox_subagents():
     """Create domain-specific sub-agents with precise instructions"""
 
+    # Create non-cached model for sub-agents to avoid cache control conflicts
+    subagent_model = ChatAnthropic(model_name="claude-sonnet-4-20250514", max_tokens=64000)
+
     # Format sub-agent prompts from template
     dcim_prompt = SUB_AGENT_PROMPT_TEMPLATE.format(
         domain="DCIM",
@@ -690,6 +694,7 @@ def create_netbox_subagents():
             "name": "dcim-specialist",
             "description": "Physical infrastructure specialist. Handles devices, racks, sites, cables, and power. Returns structured DCIM data.",
             "prompt": dcim_prompt,
+            "model": subagent_model,
             "tools": [
                 # Device management (11 tools)
                 "netbox_list_all_devices", "netbox_get_device_info", "netbox_get_device_basic_info",
@@ -724,6 +729,7 @@ def create_netbox_subagents():
             "name": "ipam-specialist",
             "description": "Network addressing specialist. Handles IPs, prefixes, VLANs, and VRFs. Returns structured IPAM data.",
             "prompt": ipam_prompt,
+            "model": subagent_model,
             "tools": [
                 # IP management (3 tools)
                 "netbox_find_available_ip", "netbox_find_duplicate_ips", "netbox_get_ip_usage",
@@ -742,6 +748,7 @@ def create_netbox_subagents():
             "name": "tenancy-specialist",
             "description": "Organizational structure specialist. Handles tenants, ownership, and contacts. Returns structured tenancy data.",
             "prompt": tenancy_prompt,
+            "model": subagent_model,
             "tools": [
                 "netbox_list_all_tenants",
                 "netbox_list_all_tenant_groups",
@@ -752,6 +759,7 @@ def create_netbox_subagents():
             "name": "virtualization-specialist",
             "description": "Virtual infrastructure specialist. Handles VMs, clusters, and virtual interfaces. Returns structured virtualization data.",
             "prompt": virtualization_prompt,
+            "model": subagent_model,
             "tools": [
                 # Virtual machine management (4 tools)
                 "netbox_list_all_virtual_machines", "netbox_get_virtual_machine_info",
@@ -777,6 +785,7 @@ def create_netbox_subagents():
                 - Journal entries and audit logs
                 - System status and diagnostics"""
             ),
+            "model": subagent_model,
             "tools": [
                 "netbox_health_check",
                 "netbox_list_all_journal_entries"
@@ -826,8 +835,8 @@ def create_netbox_agent_with_all_tools(
     # Create sub-agents with precise domain expertise
     netbox_subagents = create_netbox_subagents()
 
-    # Prepare enhanced instructions combining existing with new strategic patterns
-    full_instructions = enhanced_instructions + "\n\n" + NETBOX_SUPERVISOR_INSTRUCTIONS + tools_text
+    # Prepare enhanced instructions - Strategic instructions FIRST
+    full_instructions = NETBOX_SUPERVISOR_INSTRUCTIONS + "\n\n" + enhanced_instructions + tools_text
 
     # Add strategic tools to available tools
     tool_list = list(all_tools.values())
@@ -845,27 +854,25 @@ def create_netbox_agent_with_all_tools(
     print(f"  - Will be cached: {'✅ YES' if enable_caching and len(full_instructions) > 4096 else '❌ NO'}")
     print(f"  - Sub-agents configured: {len(netbox_subagents)} domain specialists")
 
-    # Use cached model if caching is enabled
+    # Use cached model if caching is enabled, otherwise regular model
     if enable_caching:
         model = get_cached_model(
             enable_caching=True,
             cache_ttl=cache_ttl
         )
     else:
-        model = None  # Use default model
+        # Use regular ChatAnthropic without caching
+        model = ChatAnthropic(model_name="claude-sonnet-4-20250514", max_tokens=64000)
 
     # Create agent with strategic capabilities
-    # Note: We do NOT restrict main_agent_tools to allow fallback for simple queries
-    # Sub-agents still get filtered tool sets for their domains
+    # Main agent only has strategic tools to force delegation
     agent = async_create_deep_agent(
         tool_list,
         full_instructions,
         model=model,
-        subagents=netbox_subagents  # Domain specialists with precise prompts
-        # main_agent_tools parameter omitted - main agent has access to all tools
-        # This allows: 1) Direct tool use for simple queries
-        #              2) Fallback if sub-agent delegation fails
-        #              3) Tools not in sub-agents (discovery tools) remain accessible
+        subagents=netbox_subagents,  # Domain specialists with precise prompts
+        main_agent_tools=["think", "list_available_tools", "write_todos"]  # Strategic tools only
+        # This forces the agent to use think() and delegate to sub-agents
     ).with_config({"recursion_limit": 1000})
 
     # Store caching config on agent for reference
