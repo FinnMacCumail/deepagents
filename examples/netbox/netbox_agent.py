@@ -1,10 +1,9 @@
 import os
 import sys
 import asyncio
-import inspect
 import json
 import time
-from typing import Optional, Dict, Any, List, Callable, Tuple, Annotated
+from typing import Optional, Dict, Any, List, Annotated
 
 # Add deepagents src to path if not already there
 DEEPAGENTS_SRC_PATH = "/home/ola/dev/rnd/deepagents/src"
@@ -724,99 +723,18 @@ def create_netbox_subagents():
         }
     ]
 
-def create_netbox_agent_with_all_tools(
-    enable_caching: bool = True,
-    cache_ttl: str = "1h",  # Use 1-hour cache for long sessions
-    cache_conversation: bool = True,
-    conversation_cache_threshold: int = 3  # Cache after 3 turns
-):
-    """
-    Create a NetBox agent with all dynamically generated tools and prompt caching.
-
-    Args:
-        enable_caching: Enable Claude API prompt caching
-        cache_ttl: Cache duration ("default" for 5min or "1h" for 1 hour)
-        cache_conversation: Whether to cache conversation history
-        conversation_cache_threshold: Number of turns before caching conversation
-    """
-    if len(TOOL_REGISTRY) == 0:
-        load_all_tools()
-
-    print(f"🚀 Generating wrappers for {len(TOOL_REGISTRY)} NetBox tools...")
-    all_tools = generate_all_tool_wrappers()
-    print(f"✅ Successfully wrapped {len(all_tools)} tools")
-
-    categorized_tools = organize_tools_by_category(all_tools)
-    enhanced_instructions = build_enhanced_instructions(categorized_tools)
-
-    # Prepare tool definitions for system message
-    tool_definitions = []
-    for tool_name, tool_func in all_tools.items():
-        tool_metadata = TOOL_REGISTRY.get(tool_name, {})
-        tool_definitions.append({
-            "name": tool_name,
-            "description": tool_metadata.get("description", ""),
-            "parameters": tool_metadata.get("parameters", [])
-        })
-
-    # Create comprehensive system message that will be automatically cached
-    tools_text = f"\n## Available Tools ({len(tool_definitions)} total)\n"
-    tools_text += json.dumps(tool_definitions, indent=2)
-
-    # Create sub-agents with precise domain expertise
-    netbox_subagents = create_netbox_subagents()
-
-    # Prepare enhanced instructions combining existing with new strategic patterns
-    full_instructions = enhanced_instructions + "\n\n" + NETBOX_SUPERVISOR_INSTRUCTIONS + tools_text
-
-    # Add strategic tools to available tools
-    tool_list = list(all_tools.values())
-    tool_list.extend([list_available_tools, get_tool_details, show_cache_metrics, think, store_query])
-
-    # Update think tool with proper description
-    think.__doc__ = THINK_TOOL_DESCRIPTION
-
-    print(f"📊 Cache Configuration:")
-    print(f"  - Caching Enabled: {enable_caching}")
-    print(f"  - Cache TTL: {cache_ttl}")
-    print(f"  - Instructions Size: ~{len(enhanced_instructions)//4} tokens")
-    print(f"  - Tools Definition Size: ~{len(tools_text)//4} tokens")
-    print(f"  - Total System Message: ~{len(full_instructions)//4} tokens")
-    print(f"  - Will be cached: {'✅ YES' if enable_caching and len(full_instructions) > 4096 else '❌ NO'}")
-    print(f"  - Sub-agents configured: {len(netbox_subagents)} domain specialists")
-
-    # Use cached model if caching is enabled
-    if enable_caching:
-        model = get_cached_model(
-            enable_caching=True,
-            cache_ttl=cache_ttl
-        )
-    else:
-        model = None  # Use default model
-
-    # Create agent with strategic capabilities
-    # Note: We do NOT restrict main_agent_tools to allow fallback for simple queries
-    # Sub-agents still get filtered tool sets for their domains
-    agent = async_create_deep_agent(
-        tool_list,
-        full_instructions,
-        model=model,
-        subagents=netbox_subagents  # Domain specialists with precise prompts
-        # main_agent_tools parameter omitted - main agent has access to all tools
-        # This allows: 1) Direct tool use for simple queries
-        #              2) Fallback if sub-agent delegation fails
-        #              3) Tools not in sub-agents (discovery tools) remain accessible
-    ).with_config({"recursion_limit": 1000})
-
-    # Store caching config on agent for reference
-    agent._cache_config = {
-        "enabled": enable_caching,
-        "ttl": cache_ttl,
-        "conversation_caching": cache_conversation,
-        "conversation_threshold": conversation_cache_threshold
-    }
-
-    return agent
+# =============================================================================
+# DEPRECATED: Complex MCP Agent (62 tools) - NO LONGER FUNCTIONAL
+# =============================================================================
+# The create_netbox_agent_with_all_tools() function has been removed.
+# It depended on complex MCP code that was deleted in the simple MCP migration.
+#
+# Use create_netbox_agent_with_simple_mcp() instead, which provides:
+# - 3 generic MCP tools (netbox_get_objects, netbox_get_object_by_id, netbox_get_changelogs)
+# - Same cross-domain coordination capabilities
+# - Much more efficient prompt caching
+# - All NetBox object types accessible via object_type parameter
+# =============================================================================
 
 
 def create_netbox_agent_with_simple_mcp(
@@ -1042,8 +960,12 @@ async def main():
     """Interactive NetBox agent CLI with continuous query loop"""
 
     # Welcome message
-    print("🚀 NetBox Interactive Agent CLI")
-    print(f"Agent has access to all {len(TOOL_REGISTRY)} NetBox tools!")
+    print("🚀 NetBox Interactive Agent CLI (Simple MCP)")
+    print("Agent has access to 3 generic MCP tools:")
+    print("  • netbox_get_objects - List/search any NetBox object type")
+    print("  • netbox_get_object_by_id - Get detailed object information")
+    print("  • netbox_get_changelogs - Query change audit logs")
+    print("\nSupports ALL NetBox object types via object_type parameter")
     print("\nAvailable commands:")
     print("  - Type any NetBox query in natural language")
     print("  - 'exit', 'quit', or 'q' to quit")
@@ -1086,12 +1008,10 @@ if __name__ == "__main__":
     if enable_cache:
         print(f"⏰ Cache Duration: {cache_duration}")
 
-    # Create agent with caching
-    netbox_agent = create_netbox_agent_with_all_tools(
+    # Create agent with simple MCP (3 tools)
+    netbox_agent = create_netbox_agent_with_simple_mcp(
         enable_caching=enable_cache,
-        cache_ttl=cache_duration,
-        cache_conversation=True,
-        conversation_cache_threshold=3
+        cache_ttl=cache_duration
     )
 
     asyncio.run(main())
