@@ -238,6 +238,9 @@ async def get_mcp_session():
         _mcp_session_context = ClientSession(read, write)
         _mcp_session = await _mcp_session_context.__aenter__()
 
+        # CRITICAL: Initialize the session before making any tool calls
+        await _mcp_session.initialize()
+
     return _mcp_session
 
 async def cleanup_mcp_session():
