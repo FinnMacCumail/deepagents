@@ -21,14 +21,14 @@ from langchain_anthropic import ChatAnthropic
 from langgraph.prebuilt import InjectedState
 from langgraph.types import Command
 
-# Simple MCP Server Integration
-# Path to simple netbox-mcp-server (3 tools instead of 62)
-SIMPLE_MCP_PATH = "/home/ola/dev/rnd/mcp/testmcp/netbox-mcp-server"
-if SIMPLE_MCP_PATH not in sys.path:
-    sys.path.insert(0, SIMPLE_MCP_PATH)
+# MCP Server Integration
+# Using langchain-mcp-adapters to connect to simple MCP server
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
 
-# Import simple MCP client
-from netbox_client import NetBoxRestClient
+# Simple MCP Server Configuration
+# Path to simple netbox-mcp-server (3 tools instead of 62)
+SIMPLE_MCP_SERVER_PATH = "/home/ola/dev/rnd/mcp/testmcp/netbox-mcp-server/server.py"
 
 # Import prompts from centralized module
 from prompts import (
@@ -203,26 +203,63 @@ except ImportError:
                     os.environ[key] = value.strip('"\'')
     pass
 
-# Initialize Simple MCP NetBox client
-# Uses direct REST API client instead of complex tool registry
-netbox_client = None
+# MCP Client Session Management
+# Global MCP session for communicating with simple MCP server
+_mcp_session = None
+_mcp_client = None
 
-def get_netbox_client():
-    """Get or create simple NetBox REST client instance"""
-    global netbox_client
-    if netbox_client is None:
+async def get_mcp_session():
+    """Get or create MCP client session connected to simple NetBox MCP server"""
+    global _mcp_session, _mcp_client
+
+    if _mcp_session is None:
+        # Verify environment variables are set
         netbox_url = os.getenv("NETBOX_URL")
         netbox_token = os.getenv("NETBOX_TOKEN")
 
         if not netbox_url or not netbox_token:
             raise ValueError("NETBOX_URL and NETBOX_TOKEN environment variables must be set")
 
-        netbox_client = NetBoxRestClient(
-            url=netbox_url,
-            token=netbox_token,
-            verify_ssl=True
+        # Create MCP server parameters for stdio communication
+        server_params = StdioServerParameters(
+            command="python",
+            args=[SIMPLE_MCP_SERVER_PATH],
+            env={
+                **os.environ,  # Pass through all env vars including NETBOX_URL and NETBOX_TOKEN
+            }
         )
-    return netbox_client
+
+        # Create stdio client context
+        stdio = stdio_client(server_params)
+        _mcp_client = stdio.__aenter__()  # Enter the async context
+        read, write = await _mcp_client
+
+        # Create session
+        _mcp_session = ClientSession(read, write)
+        await _mcp_session.__aenter__()  # Initialize session
+
+    return _mcp_session
+
+async def call_mcp_tool(tool_name: str, arguments: dict) -> dict:
+    """Call a tool on the MCP server and return the result"""
+    session = await get_mcp_session()
+
+    try:
+        result = await session.call_tool(tool_name, arguments=arguments)
+
+        # MCP returns a CallToolResult object with content array
+        if hasattr(result, 'content') and len(result.content) > 0:
+            # Extract the text content from the result
+            content = result.content[0]
+            if hasattr(content, 'text'):
+                # Parse the JSON string response
+                import json
+                return json.loads(content.text)
+            return {"result": str(content)}
+
+        return {"result": str(result)}
+    except Exception as e:
+        return {"error": str(e), "tool": tool_name, "arguments": arguments}
 
 
 # =============================================================================
@@ -230,8 +267,8 @@ def get_netbox_client():
 # =============================================================================
 
 @tool
-def netbox_get_objects(object_type: str, filters: dict = None) -> dict:
-    """Get NetBox objects with optional filtering.
+async def netbox_get_objects(object_type: str, filters: dict = None) -> dict:
+    """Get NetBox objects with optional filtering via MCP server.
 
     This is a generic tool that can retrieve ANY NetBox object type.
 
@@ -256,54 +293,20 @@ def netbox_get_objects(object_type: str, filters: dict = None) -> dict:
         - Active devices in site: netbox_get_objects("devices", {"site": "DM-Akron", "status": "active"})
         - Find IPs in VRF: netbox_get_objects("ip-addresses", {"vrf": "prod"})
     """
-    client = get_netbox_client()
     filters = filters or {}
 
-    # Map object_type to API endpoint (simple MCP server handles this internally,
-    # but we need to validate the object_type exists)
-    valid_object_types = {
-        # DCIM
-        "cables", "console-ports", "console-server-ports", "devices", "device-bays",
-        "device-roles", "device-types", "front-ports", "interfaces", "inventory-items",
-        "locations", "manufacturers", "modules", "module-bays", "module-types",
-        "platforms", "power-feeds", "power-outlets", "power-panels", "power-ports",
-        "racks", "rack-reservations", "rack-roles", "regions", "sites", "site-groups",
-        "virtual-chassis",
-        # IPAM
-        "asns", "asn-ranges", "aggregates", "fhrp-groups", "ip-addresses", "ip-ranges",
-        "prefixes", "rirs", "roles", "route-targets", "services", "vlans", "vlan-groups", "vrfs",
-        # Circuits
-        "circuits", "circuit-types", "circuit-terminations", "providers", "provider-networks",
-        # Virtualization
-        "clusters", "cluster-groups", "cluster-types", "virtual-machines", "vm-interfaces",
-        # Tenancy
-        "tenants", "tenant-groups", "contacts", "contact-groups", "contact-roles"
-    }
+    # Call the MCP server's netbox_get_objects tool
+    result = await call_mcp_tool("netbox_get_objects", {
+        "object_type": object_type,
+        "filters": filters
+    })
 
-    if object_type not in valid_object_types:
-        return {
-            "error": f"Invalid object_type '{object_type}'",
-            "valid_types": sorted(list(valid_object_types)),
-            "hint": "Use one of the valid object types listed"
-        }
-
-    try:
-        # Call the simple MCP server's generic get method
-        # Note: The simple MCP server.py has the NETBOX_OBJECT_TYPES mapping
-        # that converts object_type to the correct API endpoint
-        results = client.get(endpoint=f"dcim/{object_type}", params=filters)
-        return {"results": results, "count": len(results) if isinstance(results, list) else 1}
-    except Exception as e:
-        return {
-            "error": str(e),
-            "object_type": object_type,
-            "filters": filters
-        }
+    return result
 
 
 @tool
-def netbox_get_object_by_id(object_type: str, object_id: int) -> dict:
-    """Get detailed information about a specific NetBox object by its ID.
+async def netbox_get_object_by_id(object_type: str, object_id: int) -> dict:
+    """Get detailed information about a specific NetBox object by its ID via MCP server.
 
     Args:
         object_type: NetBox object type (e.g., "devices", "sites", "ip-addresses")
@@ -317,23 +320,18 @@ def netbox_get_object_by_id(object_type: str, object_id: int) -> dict:
         - Get site info: netbox_get_object_by_id("sites", 5)
         - Get IP details: netbox_get_object_by_id("ip-addresses", 456)
     """
-    client = get_netbox_client()
+    # Call the MCP server's netbox_get_object_by_id tool
+    result = await call_mcp_tool("netbox_get_object_by_id", {
+        "object_type": object_type,
+        "object_id": object_id
+    })
 
-    try:
-        # The client's get() method with id parameter retrieves single object
-        result = client.get(endpoint=f"dcim/{object_type}", id=object_id)
-        return result
-    except Exception as e:
-        return {
-            "error": str(e),
-            "object_type": object_type,
-            "object_id": object_id
-        }
+    return result
 
 
 @tool
-def netbox_get_changelogs(filters: dict = None) -> dict:
-    """Get NetBox change audit logs (changelogs).
+async def netbox_get_changelogs(filters: dict = None) -> dict:
+    """Get NetBox change audit logs (changelogs) via MCP server.
 
     Retrieve object change records to track who modified what and when.
 
@@ -356,18 +354,14 @@ def netbox_get_changelogs(filters: dict = None) -> dict:
         - Changes to device: netbox_get_changelogs({"changed_object_id": 123})
         - Deletions: netbox_get_changelogs({"action": "delete"})
     """
-    client = get_netbox_client()
     filters = filters or {}
 
-    try:
-        endpoint = "core/object-changes"
-        results = client.get(endpoint=endpoint, params=filters)
-        return {"results": results, "count": len(results) if isinstance(results, list) else 1}
-    except Exception as e:
-        return {
-            "error": str(e),
-            "filters": filters
-        }
+    # Call the MCP server's netbox_get_changelogs tool
+    result = await call_mcp_tool("netbox_get_changelogs", {
+        "filters": filters
+    })
+
+    return result
 
 
 # =============================================================================
