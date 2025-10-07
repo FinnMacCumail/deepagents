@@ -34,7 +34,8 @@ SIMPLE_MCP_SERVER_PATH = "/home/ola/dev/rnd/mcp/testmcp/netbox-mcp-server/server
 from prompts import (
     NETBOX_SUPERVISOR_INSTRUCTIONS,
     SUB_AGENT_PROMPT_TEMPLATE,
-    THINK_TOOL_DESCRIPTION
+    THINK_TOOL_DESCRIPTION,
+    SIMPLE_MCP_INSTRUCTIONS
 )
 
 """
@@ -855,7 +856,7 @@ def create_netbox_agent_with_simple_mcp(
     netbox_subagents = create_netbox_subagents()
 
     # Combined instructions for simple MCP
-    full_instructions = NETBOX_SUPERVISOR_INSTRUCTIONS
+    full_instructions = NETBOX_SUPERVISOR_INSTRUCTIONS + "\n\n" + SIMPLE_MCP_INSTRUCTIONS
 
     print(f"📊 Simple MCP Configuration:")
     print(f"  - Total Tools: {len(tool_list)}")

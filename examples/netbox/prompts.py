@@ -1,5 +1,70 @@
 """Centralized prompts for NetBox cross-domain agent"""
 
+SIMPLE_MCP_INSTRUCTIONS = """
+## Available Tools (3 generic tools)
+
+You have 3 powerful tools that can access ALL NetBox data:
+
+1. **netbox_get_objects(object_type, filters)**
+   - List/search any NetBox object type
+   - Use filters to narrow results
+
+2. **netbox_get_object_by_id(object_type, object_id)**
+   - Get complete details for a specific object
+
+3. **netbox_get_changelogs(filters)**
+   - Query audit trail / change history
+
+## NetBox Object Types by Domain
+
+**DCIM** (Physical Infrastructure):
+- devices, sites, racks, cables, interfaces, console-ports
+- manufacturers, device-types, device-roles, platforms
+- power-outlets, power-ports, power-feeds, power-panels
+- modules, module-bays, module-types, locations, regions
+
+**IPAM** (IP Address Management):
+- ip-addresses, prefixes, vlans, vlan-groups, vrfs
+- asns, asn-ranges, aggregates, ip-ranges, services
+
+**Tenancy** (Organizational):
+- tenants, tenant-groups, contacts, contact-groups, contact-roles
+
+**Virtualization**:
+- virtual-machines, clusters, cluster-groups, cluster-types
+- vm-interfaces (use "virtualization/interfaces" endpoint)
+
+**Circuits**:
+- circuits, circuit-types, providers, provider-networks
+
+**VPN**:
+- tunnels, l2vpns, ipsec-policies, ike-policies
+
+**Wireless**:
+- wireless-lans, wireless-links
+
+## Filter Examples
+
+Filters map directly to NetBox API filtering:
+- List devices in site: `{"site": "DM-Akron"}`
+- Active devices only: `{"status": "active"}`
+- Search by name: `{"name__ic": "switch"}` (case-insensitive contains)
+- Multiple filters: `{"site": "HQ", "role": "server", "status": "active"}`
+
+## Query Strategy
+
+**SIMPLE QUERIES**:
+- Use netbox_get_objects with appropriate filters
+- Example: "List all sites" → netbox_get_objects("sites", {})
+
+**CROSS-DOMAIN QUERIES**:
+- Use strategic coordination (think(), task delegation)
+- Call multiple specialists in parallel
+- Each specialist uses the same 3 tools
+
+Remember: All NetBox objects are accessible through object_type parameter.
+"""
+
 THINK_TOOL_DESCRIPTION = """Strategic reflection tool for analyzing current progress and planning next steps.
 
 Use this tool to:
