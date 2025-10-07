@@ -817,6 +817,86 @@ def create_netbox_agent_with_all_tools(
 
     return agent
 
+
+def create_netbox_agent_with_simple_mcp(
+    enable_caching: bool = True,
+    cache_ttl: str = "1h"
+):
+    """
+    Create a NetBox agent using simple MCP server (3 generic tools).
+
+    This version connects to the simple NetBox MCP server which provides
+    3 generic tools that accept object_type parameters, rather than 62
+    specialized tools. Much more efficient for prompt caching.
+
+    Args:
+        enable_caching: Enable Claude API prompt caching
+        cache_ttl: Cache duration ("default" for 5min or "1h" for 1 hour)
+    """
+    print(f"🚀 Creating NetBox agent with simple MCP (3 tools)...")
+
+    # Three simple MCP tools
+    tool_list = [
+        netbox_get_objects,
+        netbox_get_object_by_id,
+        netbox_get_changelogs,
+        # Strategic/discovery tools
+        list_available_tools,
+        get_tool_details,
+        show_cache_metrics,
+        think,
+        store_query
+    ]
+
+    # Update think tool description
+    think.__doc__ = THINK_TOOL_DESCRIPTION
+
+    # Create sub-agents with simple MCP tools
+    netbox_subagents = create_netbox_subagents()
+
+    # Combined instructions for simple MCP
+    full_instructions = NETBOX_SUPERVISOR_INSTRUCTIONS
+
+    print(f"📊 Simple MCP Configuration:")
+    print(f"  - Total Tools: {len(tool_list)}")
+    print(f"  - NetBox MCP Tools: 3 (netbox_get_objects, netbox_get_object_by_id, netbox_get_changelogs)")
+    print(f"  - Strategic Tools: 5 (list_available_tools, get_tool_details, show_cache_metrics, think, store_query)")
+    print(f"  - Sub-agents: {len(netbox_subagents)} domain specialists")
+    print(f"  - Instructions Size: ~{len(full_instructions)//4} tokens")
+    print(f"  - Caching Enabled: {enable_caching}")
+    print(f"  - Cache TTL: {cache_ttl}")
+
+    # Use cached model if caching is enabled
+    if enable_caching:
+        model = get_cached_model(
+            enable_caching=True,
+            cache_ttl=cache_ttl
+        )
+    else:
+        model = ChatAnthropic(
+            model_name="claude-sonnet-4-20250514",
+            max_tokens=64000
+        )
+
+    # Create agent with simple MCP tools
+    agent = async_create_deep_agent(
+        tool_list,
+        full_instructions,
+        model=model,
+        subagents=netbox_subagents
+    ).with_config({"recursion_limit": 1000})
+
+    # Store caching config
+    agent._cache_config = {
+        "enabled": enable_caching,
+        "ttl": cache_ttl,
+        "mcp_mode": "simple"
+    }
+
+    print(f"✅ Agent created successfully with simple MCP")
+
+    return agent
+
 # Add new command to show cache metrics
 @tool
 async def show_cache_metrics() -> Dict[str, Any]:
