@@ -224,6 +224,156 @@ def get_netbox_client():
         )
     return netbox_client
 
+
+# =============================================================================
+# SIMPLE MCP TOOLS (3 generic tools instead of 62 specialized ones)
+# =============================================================================
+
+@tool
+def netbox_get_objects(object_type: str, filters: dict = None) -> dict:
+    """Get NetBox objects with optional filtering.
+
+    This is a generic tool that can retrieve ANY NetBox object type.
+
+    Args:
+        object_type: NetBox object type. Common types include:
+            DCIM: devices, sites, racks, cables, interfaces, manufacturers,
+                  device-types, device-roles, power-outlets, power-ports
+            IPAM: ip-addresses, prefixes, vlans, vlan-groups, vrfs, asns
+            Tenancy: tenants, tenant-groups, contacts
+            Virtualization: virtual-machines, clusters, vm-interfaces
+
+        filters: Optional dict of API filters. Examples:
+            {"site": "DM-Akron"} - Filter by site name
+            {"status": "active"} - Filter by status
+            {"name__ic": "switch"} - Case-insensitive name contains
+
+    Returns:
+        List of objects matching the filters
+
+    Examples:
+        - List all sites: netbox_get_objects("sites", {})
+        - Active devices in site: netbox_get_objects("devices", {"site": "DM-Akron", "status": "active"})
+        - Find IPs in VRF: netbox_get_objects("ip-addresses", {"vrf": "prod"})
+    """
+    client = get_netbox_client()
+    filters = filters or {}
+
+    # Map object_type to API endpoint (simple MCP server handles this internally,
+    # but we need to validate the object_type exists)
+    valid_object_types = {
+        # DCIM
+        "cables", "console-ports", "console-server-ports", "devices", "device-bays",
+        "device-roles", "device-types", "front-ports", "interfaces", "inventory-items",
+        "locations", "manufacturers", "modules", "module-bays", "module-types",
+        "platforms", "power-feeds", "power-outlets", "power-panels", "power-ports",
+        "racks", "rack-reservations", "rack-roles", "regions", "sites", "site-groups",
+        "virtual-chassis",
+        # IPAM
+        "asns", "asn-ranges", "aggregates", "fhrp-groups", "ip-addresses", "ip-ranges",
+        "prefixes", "rirs", "roles", "route-targets", "services", "vlans", "vlan-groups", "vrfs",
+        # Circuits
+        "circuits", "circuit-types", "circuit-terminations", "providers", "provider-networks",
+        # Virtualization
+        "clusters", "cluster-groups", "cluster-types", "virtual-machines", "vm-interfaces",
+        # Tenancy
+        "tenants", "tenant-groups", "contacts", "contact-groups", "contact-roles"
+    }
+
+    if object_type not in valid_object_types:
+        return {
+            "error": f"Invalid object_type '{object_type}'",
+            "valid_types": sorted(list(valid_object_types)),
+            "hint": "Use one of the valid object types listed"
+        }
+
+    try:
+        # Call the simple MCP server's generic get method
+        # Note: The simple MCP server.py has the NETBOX_OBJECT_TYPES mapping
+        # that converts object_type to the correct API endpoint
+        results = client.get(endpoint=f"dcim/{object_type}", params=filters)
+        return {"results": results, "count": len(results) if isinstance(results, list) else 1}
+    except Exception as e:
+        return {
+            "error": str(e),
+            "object_type": object_type,
+            "filters": filters
+        }
+
+
+@tool
+def netbox_get_object_by_id(object_type: str, object_id: int) -> dict:
+    """Get detailed information about a specific NetBox object by its ID.
+
+    Args:
+        object_type: NetBox object type (e.g., "devices", "sites", "ip-addresses")
+        object_id: The numeric ID of the object
+
+    Returns:
+        Complete object details including all relationships
+
+    Examples:
+        - Get device details: netbox_get_object_by_id("devices", 123)
+        - Get site info: netbox_get_object_by_id("sites", 5)
+        - Get IP details: netbox_get_object_by_id("ip-addresses", 456)
+    """
+    client = get_netbox_client()
+
+    try:
+        # The client's get() method with id parameter retrieves single object
+        result = client.get(endpoint=f"dcim/{object_type}", id=object_id)
+        return result
+    except Exception as e:
+        return {
+            "error": str(e),
+            "object_type": object_type,
+            "object_id": object_id
+        }
+
+
+@tool
+def netbox_get_changelogs(filters: dict = None) -> dict:
+    """Get NetBox change audit logs (changelogs).
+
+    Retrieve object change records to track who modified what and when.
+
+    Args:
+        filters: Optional dict of filters:
+            user_id: Filter by user ID
+            user: Filter by username
+            changed_object_type_id: Filter by object type
+            changed_object_id: Filter by object ID
+            action: Filter by action (created, updated, deleted)
+            time_before: Changes before this time (ISO 8601)
+            time_after: Changes after this time (ISO 8601)
+            q: Search term for object representation
+
+    Returns:
+        List of changelog entries with details about changes
+
+    Examples:
+        - Recent changes: netbox_get_changelogs({"time_after": "2025-09-30T00:00:00Z"})
+        - Changes to device: netbox_get_changelogs({"changed_object_id": 123})
+        - Deletions: netbox_get_changelogs({"action": "delete"})
+    """
+    client = get_netbox_client()
+    filters = filters or {}
+
+    try:
+        endpoint = "core/object-changes"
+        results = client.get(endpoint=endpoint, params=filters)
+        return {"results": results, "count": len(results) if isinstance(results, list) else 1}
+    except Exception as e:
+        return {
+            "error": str(e),
+            "filters": filters
+        }
+
+
+# =============================================================================
+# LEGACY COMPLEX MCP CODE (to be removed in Phase 3)
+# =============================================================================
+
 def build_annotations_from_metadata(parameters: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Build function annotations from parameter metadata."""
     annotations = {}
