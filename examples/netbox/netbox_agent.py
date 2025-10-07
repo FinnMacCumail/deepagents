@@ -271,20 +271,29 @@ async def call_mcp_tool(tool_name: str, arguments: dict) -> dict:
 
         # MCP returns a CallToolResult object with content array
         if hasattr(result, 'content') and len(result.content) > 0:
-            # Aggregate all content items (MCP may split large results across multiple items)
-            all_text = []
+            import json
+
+            # Check if we have a single content item (normal case)
+            if len(result.content) == 1:
+                content = result.content[0]
+                if hasattr(content, 'text'):
+                    return json.loads(content.text)
+                return {"result": str(content)}
+
+            # Multiple content items - each is a separate JSON object in an array
+            # Parse each one and combine them into a single array
+            all_items = []
             for content in result.content:
                 if hasattr(content, 'text'):
-                    all_text.append(content.text)
+                    try:
+                        item = json.loads(content.text)
+                        all_items.append(item)
+                    except json.JSONDecodeError:
+                        # If it's not valid JSON, include as string
+                        all_items.append({"text": content.text})
 
-            if all_text:
-                # Join all text content and parse as JSON
-                import json
-                combined_text = ''.join(all_text)
-                return json.loads(combined_text)
-
-            # Fallback for non-text content
-            return {"result": str(result.content)}
+            # Return as array if we have multiple items
+            return all_items if all_items else {"result": str(result.content)}
 
         return {"result": str(result)}
     except Exception as e:
