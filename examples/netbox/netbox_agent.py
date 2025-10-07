@@ -17,17 +17,18 @@ from deepagents.state import DeepAgentState
 from langchain_core.tools import tool
 from langchain_core.tools import InjectedToolCallId
 from langchain_core.messages import ToolMessage
+from langchain_anthropic import ChatAnthropic
 from langgraph.prebuilt import InjectedState
 from langgraph.types import Command
 
-# Add netbox-mcp to path if not already there
-NETBOX_MCP_PATH = "/home/ola/dev/netboxdev/netbox-mcp"
-if NETBOX_MCP_PATH not in sys.path:
-    sys.path.insert(0, NETBOX_MCP_PATH)
+# Simple MCP Server Integration
+# Path to simple netbox-mcp-server (3 tools instead of 62)
+SIMPLE_MCP_PATH = "/home/ola/dev/rnd/mcp/testmcp/netbox-mcp-server"
+if SIMPLE_MCP_PATH not in sys.path:
+    sys.path.insert(0, SIMPLE_MCP_PATH)
 
-from netbox_mcp import NetBoxClient, load_config
-from netbox_mcp.tools import load_all_tools
-from netbox_mcp.registry import TOOL_REGISTRY, get_tool_by_name
+# Import simple MCP client
+from netbox_client import NetBoxRestClient
 
 # Import prompts from centralized module
 from prompts import (
@@ -202,18 +203,25 @@ except ImportError:
                     os.environ[key] = value.strip('"\'')
     pass
 
-# Initialize NetBox client and load tools
-load_all_tools()  # Load all NetBox MCP tools
-
-# Get NetBox client instance
+# Initialize Simple MCP NetBox client
+# Uses direct REST API client instead of complex tool registry
 netbox_client = None
 
 def get_netbox_client():
-    """Get or create NetBox client instance"""
+    """Get or create simple NetBox REST client instance"""
     global netbox_client
     if netbox_client is None:
-        config = load_config()
-        netbox_client = NetBoxClient(config)
+        netbox_url = os.getenv("NETBOX_URL")
+        netbox_token = os.getenv("NETBOX_TOKEN")
+
+        if not netbox_url or not netbox_token:
+            raise ValueError("NETBOX_URL and NETBOX_TOKEN environment variables must be set")
+
+        netbox_client = NetBoxRestClient(
+            url=netbox_url,
+            token=netbox_token,
+            verify_ssl=True
+        )
     return netbox_client
 
 def build_annotations_from_metadata(parameters: List[Dict[str, Any]]) -> Dict[str, Any]:
