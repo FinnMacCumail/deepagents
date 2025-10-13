@@ -963,7 +963,7 @@ async def process_netbox_query(query: str, track_metrics: bool = True):
 
         result = await netbox_agent.ainvoke({
             "messages": [{"role": "user", "content": query}]
-        }, config={'recursion_limit': 20})
+        }, config={'recursion_limit': 50})
 
         elapsed = time.time() - start_time
         response, msg_count = extract_agent_response(result)
