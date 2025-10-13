@@ -152,17 +152,36 @@ Examples include:
 - Query 3: 526,693 → Expected <50,000 input tokens (10x reduction)
 - Query 5: 760,099 → Expected <50,000 input tokens (15x reduction)
 
+## Data Contamination Prevention
+
+**IMPORTANT**: The initial prompt rewrite included the exact 5 test queries as examples, creating a data contamination problem (training on the test set). This was corrected by:
+
+1. **Replacing specific queries with generic examples**:
+   - Removed: "Show all Dunder-Mifflin sites..." (actual test query)
+   - Added: "Show infrastructure summary for tenant X..." (generic pattern)
+   - All 6 examples now use generic patterns, not specific test data
+
+2. **Creating separate test suite**: [VALIDATION_TEST_SUITE.md](VALIDATION_TEST_SUITE.md)
+   - Contains the actual 5 queries for validation
+   - Kept separate from prompts.py
+   - Ensures agent generalizes principles rather than pattern-matching
+
 ## Validation Approach
 
 To validate these changes:
 
-1. **Re-run the 5 failing queries** with new prompts
-2. **Monitor for task() tool calls** - should be zero for all 5 queries
-3. **Verify execution patterns**:
+1. **Verify data separation**:
+   - ✅ prompts.py contains generic examples only
+   - ✅ VALIDATION_TEST_SUITE.md contains actual test queries
+   - ✅ No overlap between training and test data
+
+2. **Re-run the 5 test queries** with new prompts
+3. **Monitor for task() tool calls** - should be zero for all 5 queries
+4. **Verify execution patterns**:
    - Queries 1, 4: Should use write_todos() for planning, but execute sequentially
    - Queries 2, 3, 5: Should execute directly without planning
-4. **Compare metrics**: Tool calls, LLM calls, tokens, cost, time
-5. **Check success rate**: All 5 should complete successfully
+5. **Compare metrics**: Tool calls, LLM calls, tokens, cost, time
+6. **Check success rate**: All 5 should complete successfully
 
 ## Architectural Insight
 

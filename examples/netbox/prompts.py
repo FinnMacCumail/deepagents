@@ -191,56 +191,72 @@ devices = netbox_get_objects("devices", {"tenant_id": tenant_id})
 ```
 Result: 5 tool calls, 15 seconds, SUCCESS
 
-## Real-World Query Examples
+## Query Classification Examples
 
-**Query 1**: "Show all Dunder-Mifflin sites with device counts, rack allocations, and IP prefix assignments"
+**Example 1**: "Show infrastructure summary for tenant X across all their sites"
 - Classification: **TIER 2 - Sequential Execution**
-- Execution:
-  1. Get tenant_id for "Dunder-Mifflin"
-  2. Bulk query: devices (filter by tenant_id), group by site
-  3. Bulk query: racks (filter by tenant + site)
-  4. Bulk query: prefixes (filter by tenant_id)
+- Rationale: Multi-site query with dependencies (need tenant_id first)
+- Execution approach:
+  1. Get tenant_id by name
+  2. Bulk query devices (filter by tenant_id), group by site
+  3. Bulk query racks (filter by tenant_id)
+  4. Bulk query prefixes (filter by tenant_id)
 - Estimated calls: 5-8
-- **NO sub-agents needed**
+- **NO sub-agents needed** - sequential bulk queries are efficient
 
-**Query 2**: "For device dmi01-nashua-rtr01, show location details, assigned IP addresses, and tenant ownership"
+**Example 2**: "Show device details including network configuration"
 - Classification: **TIER 1 - Direct Execution**
-- Execution:
-  1. Get device by name (includes site, tenant in response)
-  2. Get IPs for device_id
-- Estimated calls: 2
-- **NO sub-agents needed**
-
-**Query 3**: "Show where VLAN 100 is deployed across Jimbob's Banking sites"
-- Classification: **TIER 1 - Direct Execution** (negative result handling)
-- Execution:
-  1. Get tenant_id for "Jimbob's Banking"
-  2. Search VLANs (filter by tenant_id, vid=100)
-  3. If empty → Report "VLAN 100 not found, here are existing VLANs..."
+- Rationale: Single device lookup with related data
+- Execution approach:
+  1. Get device by name (includes site, tenant, role in response)
+  2. Get IP addresses for device_id
+  3. Get interfaces if needed
 - Estimated calls: 2-3
-- **NO sub-agents needed**
-- **Handle negative results gracefully, don't spiral searching**
+- **NO sub-agents needed** - simple lookup pattern
 
-**Query 4**: "For NC State University racks at Butler Communications site, show installed devices with their IP addresses"
+**Example 3**: "Find where VLAN X is deployed"
+- Classification: **TIER 1 - Direct Execution** (negative result handling)
+- Rationale: Search query that may return empty results
+- Execution approach:
+  1. Search VLANs by vid (VLAN ID)
+  2. If empty → Report "VLAN not found, here are available VLANs in range..."
+  3. If found → Get associated interfaces/sites
+- Estimated calls: 2-4
+- **NO sub-agents needed** - handle negative results gracefully, don't spiral searching
+
+**Example 4**: "Show rack contents with network connectivity for site X"
 - Classification: **TIER 2 - Sequential Execution** (dependencies)
-- Execution:
-  1. Get tenant_id for "NC State University"
-  2. Get site_id for "Butler Communications" (filter by tenant_id)
-  3. Get racks at site (filter by site_id)
-  4. Get devices (filter by site_id + tenant_id)
-  5. Get IPs for devices
-- Estimated calls: 5-8
-- **NO sub-agents needed**
+- Rationale: Multi-step query with sequential dependencies (site → racks → devices → IPs)
+- Execution approach:
+  1. Get site_id by name
+  2. Get racks at site (filter by site_id)
+  3. Get devices in racks (filter by site_id)
+  4. Get IP addresses for devices
+  5. Get cables/connections if needed
+- Estimated calls: 5-10
+- **NO sub-agents needed** - dependencies require sequential execution
 
-**Query 5**: "Compare infrastructure utilization across DM-Nashua, DM-Akron, and DM-Scranton sites"
+**Example 5**: "Compare capacity across 4 data center sites"
 - Classification: **TIER 1 - Direct Execution** (small dataset)
-- Execution:
-  1. Get site IDs for the 3 sites
-  2. For each site: get devices, racks, prefixes (bulk queries)
-  3. Calculate utilization metrics
+- Rationale: Only 4 sites, each requiring 2-3 queries
+- Execution approach:
+  1. Get site IDs for the 4 sites
+  2. For each site: get devices, racks, power capacity
+  3. Calculate utilization percentages
   4. Format comparison table
-- Estimated calls: 8-12
-- **NO sub-agents needed** (only 3 sites)
+- Estimated calls: 10-15
+- **NO sub-agents needed** - 4 sites is too small for delegation overhead
+
+**Example 6 - Counter-example**: "Audit complete infrastructure for all 50 tenants"
+- Classification: **TIER 3 - Parallel Delegation** (ONLY time sub-agents appropriate)
+- Rationale: 50 independent tenants, 3-5 calls each = 150-250 total calls
+- Execution approach:
+  1. Get list of all tenant IDs
+  2. Spawn sub-agents for batches of tenants (e.g., 10 tenants per sub-agent)
+  3. Each sub-agent queries devices, racks, IPs for their tenants
+  4. Aggregate results
+- Estimated calls: 150-250
+- **Sub-agents MAY be appropriate** - truly massive parallel workload
 
 ## Domain Expertise Map
 - **DCIM**: Physical infrastructure (devices, racks, sites, cables, power)
