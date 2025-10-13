@@ -949,7 +949,20 @@ def extract_agent_response(result):
         messages = result.get('messages', [])
         for msg in reversed(messages):
             if hasattr(msg, 'content') and hasattr(msg, 'type') and msg.type == 'ai':
-                return msg.content, len(messages)
+                # Skip empty AI messages (can happen when agent has nothing left to say)
+                content = msg.content
+                if isinstance(content, str) and content.strip():
+                    return content, len(messages)
+                elif isinstance(content, list) and len(content) > 0:
+                    # Check if list has actual text content
+                    has_content = any(
+                        item.get('type') == 'text' and item.get('text', '').strip()
+                        for item in content
+                        if isinstance(item, dict)
+                    )
+                    if has_content:
+                        return content, len(messages)
+                # If content is empty, continue searching for previous AI message
         return "No response found", len(messages)
     except Exception as e:
         return f"Error extracting response: {e}", 0
