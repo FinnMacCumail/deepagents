@@ -15,10 +15,11 @@ from deepagents.cached_model import get_cached_model
 from deepagents.state import DeepAgentState
 from langchain_core.tools import tool
 from langchain_core.tools import InjectedToolCallId
-from langchain_core.messages import ToolMessage
+from langchain_core.messages import ToolMessage, SystemMessage, BaseMessage
 from langchain_anthropic import ChatAnthropic
 from langgraph.prebuilt import InjectedState
 from langgraph.types import Command
+from typing import Sequence
 
 # MCP Server Integration
 # Using langchain-mcp-adapters to connect to simple MCP server
@@ -775,6 +776,45 @@ def create_netbox_subagents():
 # =============================================================================
 
 
+class CachedChatAnthropicFixed(ChatAnthropic):
+    """
+    Custom ChatAnthropic that properly implements prompt caching.
+
+    Fixes the issue where SystemMessage objects break tool binding in LangGraph.
+    This class uses the standard string prompt approach but adds cache_control
+    via the generate_prompt override.
+    """
+    cache_ttl: str = "1h"
+
+    def _generate_with_cache(
+        self,
+        messages: Sequence[BaseMessage],
+        stop: Optional[Sequence[str]] = None,
+        run_manager: Optional[Any] = None,
+        **kwargs: Any,
+    ) -> Any:
+        """Override to add cache_control before calling API"""
+        # Add cache_control to kwargs if not present
+        if 'cache_control' not in kwargs:
+            kwargs['cache_control'] = {"type": "ephemeral", "ttl": self.cache_ttl}
+
+        return super()._generate_with_cache(messages, stop, run_manager, **kwargs)
+
+    async def _agenerate_with_cache(
+        self,
+        messages: Sequence[BaseMessage],
+        stop: Optional[Sequence[str]] = None,
+        run_manager: Optional[Any] = None,
+        **kwargs: Any,
+    ) -> Any:
+        """Async override to add cache_control before calling API"""
+        # Add cache_control to kwargs if not present
+        if 'cache_control' not in kwargs:
+            kwargs['cache_control'] = {"type": "ephemeral", "ttl": self.cache_ttl}
+
+        return await super()._agenerate_with_cache(messages, stop, run_manager, **kwargs)
+
+
 def create_netbox_agent_with_simple_mcp(
     enable_caching: bool = True,
     cache_ttl: str = "1h"
@@ -823,22 +863,26 @@ def create_netbox_agent_with_simple_mcp(
     print(f"  - Caching Enabled: {enable_caching}")
     print(f"  - Cache TTL: {cache_ttl}")
 
-    # Use cached model if caching is enabled
+    # Use CachedChatAnthropicFixed for proper caching with tool binding
     if enable_caching:
-        model = get_cached_model(
-            enable_caching=True,
+        model = CachedChatAnthropicFixed(
+            model_name="claude-sonnet-4-20250514",
+            max_tokens=64000,
+            betas=["extended-cache-ttl-2025-04-11"],  # Enable 1-hour cache TTL
             cache_ttl=cache_ttl
         )
+        print(f"🔄 Caching enabled with 1-hour TTL on system prompt (~{len(full_instructions)//4} tokens)")
     else:
         model = ChatAnthropic(
             model_name="claude-sonnet-4-20250514",
             max_tokens=64000
         )
 
-    # Create agent with simple MCP tools
+    # Create agent with PLAIN STRING (not SystemMessage) to preserve tool binding
+    # CachedChatAnthropicFixed will add cache_control internally
     agent = async_create_deep_agent(
         tool_list,
-        full_instructions,
+        full_instructions,  # Plain string to preserve tool binding
         model=model,
         subagents=netbox_subagents
     ).with_config({"recursion_limit": 1000})
@@ -924,7 +968,32 @@ async def process_netbox_query(query: str, track_metrics: bool = True):
         elapsed = time.time() - start_time
         response, msg_count = extract_agent_response(result)
 
-        # Extract and log cache metrics from the result
+        # Enhanced cache metrics logging
+        if track_metrics:
+            # First, try to extract detailed cache info from the last AI message
+            ai_messages = [msg for msg in result.get('messages', []) if hasattr(msg, 'response_metadata')]
+            if ai_messages:
+                last_ai_msg = ai_messages[-1]
+                usage = last_ai_msg.response_metadata.get('usage', {})
+
+                if usage:
+                    total_input = usage.get('input_tokens', 0)
+                    cache_create = usage.get('cache_creation_input_tokens', 0)
+                    cache_read = usage.get('cache_read_input_tokens', 0)
+
+                    if cache_read > 0 or cache_create > 0:
+                        print(f"\n💾 Cache Performance (This Request):")
+                        if cache_create > 0:
+                            print(f"  ✨ Cache Created: {cache_create:,} tokens (~${cache_create * 0.00375 / 1000:.4f})")
+                        if cache_read > 0:
+                            cache_hit_rate = (cache_read / total_input * 100) if total_input > 0 else 0
+                            savings = (cache_read * 0.003 / 1000) - (cache_read * 0.0003 / 1000)
+                            print(f"  📖 Cache Read: {cache_read:,} tokens (saved ~${savings:.4f})")
+                            print(f"  📊 Cache Hit Rate: {cache_hit_rate:.1f}%")
+                    elif total_input > 0:
+                        print(f"\n⚠️ Cache Miss: {total_input:,} input tokens, no cache used")
+
+        # Extract and log cache metrics from the result (original method)
         if track_metrics:
             # Try multiple ways to extract cache metrics
             logged = False
