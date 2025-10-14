@@ -13,7 +13,7 @@ if DEEPAGENTS_SRC_PATH not in sys.path:
 from deepagents import async_create_deep_agent
 from deepagents.cached_model import get_cached_model
 from deepagents.state import DeepAgentState
-from langchain_core.tools import tool
+from langchain_core.tools import tool, ToolException
 from langchain_core.tools import InjectedToolCallId
 from langchain_core.messages import ToolMessage, SystemMessage, BaseMessage
 from langchain_anthropic import ChatAnthropic
@@ -37,157 +37,6 @@ from prompts import (
     THINK_TOOL_DESCRIPTION,
     SIMPLE_MCP_INSTRUCTIONS
 )
-
-"""
-PARALLEL EXECUTION PATTERNS FOR CROSS-DOMAIN QUERIES
-
-Pattern 1: Independent Domain Analysis
-When domains can be queried without dependencies, execute in parallel:
-
-# Example: Tenant infrastructure analysis
-async def analyze_tenant_infrastructure(tenant_name: str):
-    # PARALLEL execution - all three run simultaneously
-    await asyncio.gather(
-        task(
-            description=f"Get complete details for tenant '{tenant_name}' including groups and contacts",
-            subagent_type="tenancy-specialist"
-        ),
-        task(
-            description=f"List all devices assigned to tenant '{tenant_name}' with rack and site information",
-            subagent_type="dcim-specialist"
-        ),
-        task(
-            description=f"Get all IP addresses and VLANs allocated to tenant '{tenant_name}'",
-            subagent_type="ipam-specialist"
-        )
-    )
-    # After parallel execution, use think() to assess and synthesize
-
-Pattern 2: VM Network Topology
-When tracing relationships across domains:
-
-# Step 1: Get VM details (single domain)
-vm_info = await task(
-    description="Get virtual machine 'web-app-02' details including cluster and interfaces",
-    subagent_type="virtualization-specialist"
-)
-
-# Step 2: Think and identify next parallel queries
-await think(
-    reflection='''Retrieved VM details for web-app-02, including cluster and interfaces.
-    Now need to trace to physical infrastructure.
-
-    Next parallel queries:
-    - Get physical host and rack location from DCIM for the cluster
-    - Get IP and VLAN configuration from IPAM for the VM interfaces'''
-)
-
-# Step 3: Parallel queries for related information
-await asyncio.gather(
-    task(
-        description=f"Get physical host and rack location for cluster {vm_info['cluster']}",
-        subagent_type="dcim-specialist"
-    ),
-    task(
-        description=f"Get IP and VLAN configuration for VM interfaces {vm_info['interfaces']}",
-        subagent_type="ipam-specialist"
-    )
-)
-
-Pattern 3: Site Utilization with Multi-Domain Metrics
-For comprehensive analysis requiring all domains:
-
-# MAXIMUM parallel execution (all 4 domains)
-site_data = await asyncio.gather(
-    task(
-        description="Get complete device inventory for site 'Butler Communications' with power usage",
-        subagent_type="dcim-specialist"
-    ),
-    task(
-        description="Calculate IP utilization and VLAN usage for site 'Butler Communications'",
-        subagent_type="ipam-specialist"
-    ),
-    task(
-        description="List all tenants with resources at site 'Butler Communications'",
-        subagent_type="tenancy-specialist"
-    ),
-    task(
-        description="Get all virtual machines hosted at site 'Butler Communications'",
-        subagent_type="virtualization-specialist"
-    )
-)
-
-# Strategic reflection after parallel execution
-await think(
-    reflection='''Completed parallel data collection from all 4 domains for site Butler Communications.
-
-    Have gathered:
-    - Device inventory and power usage (DCIM)
-    - IP utilization and VLAN usage (IPAM)
-    - Tenant resource allocation (Tenancy)
-    - Virtual machine inventory (Virtualization)
-
-    Next steps: Correlate devices with VMs, map tenants to resources, calculate totals.'''
-)
-
-Example Cross-Domain Query Flow with Strategic Thinking:
-# Query: "Show tenant 'Research Lab' infrastructure footprint across all sites"
-
-# 1. Strategic Assessment
-await think(
-    reflection='''Analyzing query: 'Show tenant Research Lab infrastructure footprint across all sites'
-    This spans Tenancy + DCIM + IPAM domains and requires site correlation.
-
-    Information gaps:
-    - Need tenant details from tenancy domain
-    - Need device inventory from DCIM domain
-    - Need network allocations from IPAM domain
-    - Need to correlate by site
-
-    Next steps: Execute parallel domain queries, then synthesize results.'''
-)
-
-# 2. Planning
-await write_todos([
-    {"content": "Get Research Lab tenant information", "status": "in_progress"},
-    {"content": "Query devices, IPs, VLANs in parallel", "status": "pending"},
-    {"content": "Correlate resources by site", "status": "pending"},
-    {"content": "Generate infrastructure footprint report", "status": "pending"}
-])
-
-# 3. Parallel Domain Delegation (single response, multiple task calls)
-results = await asyncio.gather(
-    task(
-        description="Get complete information for tenant 'Research Lab' including all resource reports",
-        subagent_type="tenancy-specialist"
-    ),
-    task(
-        description="List all devices assigned to tenant 'Research Lab' with site, rack, and type details",
-        subagent_type="dcim-specialist"
-    ),
-    task(
-        description="Get all IP addresses, prefixes, and VLANs allocated to tenant 'Research Lab'",
-        subagent_type="ipam-specialist"
-    )
-)
-
-# 4. Strategic Reflection
-await think(
-    reflection='''Received comprehensive data from 3 parallel domain queries.
-
-    Current state:
-    - Have tenant overview and resource reports from tenancy-specialist
-    - Have complete device inventory with site/rack details from dcim-specialist
-    - Have IP/prefix/VLAN allocations from ipam-specialist
-
-    Gap identified: Need to correlate all resources by site for infrastructure footprint view.
-
-    Final steps: Group resources by site, calculate per-site metrics, format comprehensive report.'''
-)
-
-# 5. Synthesis and Response
-# Agent combines results into cohesive infrastructure footprint report
-"""
 
 # Load environment variables from .env file
 try:
@@ -298,7 +147,9 @@ async def call_mcp_tool(tool_name: str, arguments: dict) -> dict:
 
         return {"result": str(result)}
     except Exception as e:
-        return {"error": str(e), "tool": tool_name, "arguments": arguments}
+        # Raise ToolException to signal explicit error to agent
+        # This prevents agent from treating error dict as successful data
+        raise ToolException(f"Tool '{tool_name}' failed: {str(e)}")
 
 
 # =============================================================================
@@ -404,102 +255,11 @@ async def netbox_get_changelogs(filters: dict = None) -> dict:
 
 
 # =============================================================================
-# SIMPLE MCP TOOL DISCOVERY
+# TOOL DISCOVERY FUNCTIONS REMOVED
 # =============================================================================
-
-@tool
-async def list_available_tools() -> Dict[str, Any]:
-    """List the 3 available NetBox MCP tools."""
-    return {
-        "total_tools": 3,
-        "tools": [
-            {
-                "name": "netbox_get_objects",
-                "description": "Get NetBox objects with optional filtering",
-                "parameters": ["object_type (str)", "filters (dict, optional)"]
-            },
-            {
-                "name": "netbox_get_object_by_id",
-                "description": "Get detailed information about a specific NetBox object by ID",
-                "parameters": ["object_type (str)", "object_id (int)"]
-            },
-            {
-                "name": "netbox_get_changelogs",
-                "description": "Get NetBox change audit logs",
-                "parameters": ["filters (dict, optional)"]
-            }
-        ]
-    }
-
-@tool
-async def get_tool_details(tool_name: str) -> Dict[str, Any]:
-    """Get detailed information about a specific NetBox MCP tool."""
-    tool_details = {
-        "netbox_get_objects": {
-            "name": "netbox_get_objects",
-            "description": "Generic tool to retrieve ANY NetBox object type with optional filtering",
-            "parameters": {
-                "object_type": {
-                    "type": "str",
-                    "required": True,
-                    "description": "NetBox object type (devices, sites, racks, ip-addresses, etc.)"
-                },
-                "filters": {
-                    "type": "dict",
-                    "required": False,
-                    "description": "API filter parameters (site, status, name__ic, etc.)"
-                }
-            },
-            "examples": [
-                'netbox_get_objects("sites", {})',
-                'netbox_get_objects("devices", {"site": "DM-Akron", "status": "active"})',
-                'netbox_get_objects("ip-addresses", {"vrf": "prod"})'
-            ]
-        },
-        "netbox_get_object_by_id": {
-            "name": "netbox_get_object_by_id",
-            "description": "Get detailed information about a specific NetBox object by its ID",
-            "parameters": {
-                "object_type": {
-                    "type": "str",
-                    "required": True,
-                    "description": "NetBox object type (devices, sites, etc.)"
-                },
-                "object_id": {
-                    "type": "int",
-                    "required": True,
-                    "description": "Numeric ID of the object"
-                }
-            },
-            "examples": [
-                'netbox_get_object_by_id("devices", 123)',
-                'netbox_get_object_by_id("sites", 5)'
-            ]
-        },
-        "netbox_get_changelogs": {
-            "name": "netbox_get_changelogs",
-            "description": "Get NetBox change audit logs with optional filtering",
-            "parameters": {
-                "filters": {
-                    "type": "dict",
-                    "required": False,
-                    "description": "Filter criteria (user_id, action, time_before, time_after, etc.)"
-                }
-            },
-            "examples": [
-                'netbox_get_changelogs({"time_after": "2025-09-30T00:00:00Z"})',
-                'netbox_get_changelogs({"action": "delete"})'
-            ]
-        }
-    }
-
-    if tool_name not in tool_details:
-        return {
-            "error": f"Tool '{tool_name}' not found",
-            "available_tools": list(tool_details.keys())
-        }
-
-    return tool_details[tool_name]
+# list_available_tools() and get_tool_details() have been removed.
+# These discovery tools were never used (0 calls across validation traces)
+# and were redundant with prompt documentation. Preserved in netbox_tools_deprecated.py.
 
 # Add cache monitoring class
 class CacheMonitor:
@@ -616,151 +376,14 @@ class CacheMonitor:
 # Global cache monitor instance
 cache_monitor = CacheMonitor()
 
-def create_netbox_subagents():
-    """Create domain-specific sub-agents for simple MCP (3 tools each)"""
-
-    # All specialists use the same 3 simple MCP tools
-    simple_tools = [
-        "netbox_get_objects",
-        "netbox_get_object_by_id",
-        "netbox_get_changelogs"
-    ]
-
-    # Format sub-agent prompts with object_type guidance
-    dcim_prompt = SUB_AGENT_PROMPT_TEMPLATE.format(
-        domain="DCIM",
-        expertise_areas="physical infrastructure management",
-        detailed_expertise="""
-        - Device inventory: servers, switches, routers, PDUs
-        - Rack management: layouts, elevations, utilization
-        - Site topology: locations, regions, hierarchies
-        - Cable management: connections, paths, types
-        - Power distribution: outlets, feeds, consumption
-        - Physical interfaces: ports, connections, speeds
-
-        **Your object_types**: devices, sites, racks, cables, interfaces,
-        manufacturers, device-types, device-roles, platforms, power-outlets,
-        power-ports, power-feeds, power-panels, modules, locations,
-        console-ports, console-server-ports, front-ports, inventory-items
-
-        **Examples**:
-        - List devices: netbox_get_objects("devices", {"site": "DM-Akron"})
-        - Get device: netbox_get_object_by_id("devices", 123)
-        - Find racks: netbox_get_objects("racks", {"location": "Building-A"})
-        - List sites: netbox_get_objects("sites", {})"""
-    )
-
-    ipam_prompt = SUB_AGENT_PROMPT_TEMPLATE.format(
-        domain="IPAM",
-        expertise_areas="network addressing and allocation",
-        detailed_expertise="""
-        - IP address management: assignments, availability, conflicts
-        - Prefix allocation: subnets, utilization, hierarchies
-        - VLAN configuration: IDs, names, groups, assignments
-        - VRF segmentation: routing domains, isolation
-        - Address resolution: DNS, DHCP reservations
-        - Network services: NAT pools, anycast addresses
-
-        **Your object_types**: ip-addresses, prefixes, vlans, vlan-groups,
-        vrfs, asns, asn-ranges, aggregates, ip-ranges, services, roles,
-        route-targets, rirs, fhrp-groups
-
-        **Examples**:
-        - Find IPs: netbox_get_objects("ip-addresses", {"vrf": "prod"})
-        - Get prefix: netbox_get_object_by_id("prefixes", 45)
-        - List VLANs: netbox_get_objects("vlans", {"site": "DM-Akron"})
-        - Get VRF: netbox_get_objects("vrfs", {"name": "management"})"""
-    )
-
-    tenancy_prompt = SUB_AGENT_PROMPT_TEMPLATE.format(
-        domain="Tenancy",
-        expertise_areas="organizational structure and ownership",
-        detailed_expertise="""
-        - Tenant management: organizations, departments, customers
-        - Resource ownership: device assignments, IP allocations
-        - Contact information: technical, administrative, billing
-        - Organizational hierarchy: parent-child relationships
-        - Resource quotas: limits, allocations, usage
-        - Multi-tenancy boundaries: isolation, sharing
-
-        **Your object_types**: tenants, tenant-groups, contacts,
-        contact-groups, contact-roles
-
-        **Examples**:
-        - List tenants: netbox_get_objects("tenants", {})
-        - Get tenant: netbox_get_object_by_id("tenants", 7)
-        - Find contacts: netbox_get_objects("contacts", {"role": "admin"})"""
-    )
-
-    virtualization_prompt = SUB_AGENT_PROMPT_TEMPLATE.format(
-        domain="Virtualization",
-        expertise_areas="virtual infrastructure management",
-        detailed_expertise="""
-        - Virtual machines: instances, configurations, states
-        - Cluster management: hosts, resources, availability
-        - Virtual interfaces: vNICs, configurations, attachments
-        - VM-to-host mapping: placement, migration, affinity
-        - Resource allocation: CPU, memory, storage
-        - Virtual networking: vSwitches, port groups, overlays
-
-        **Your object_types**: virtual-machines, clusters, cluster-groups,
-        cluster-types, vm-interfaces
-
-        **Examples**:
-        - List VMs: netbox_get_objects("virtual-machines", {"cluster": "prod-cluster"})
-        - Get VM: netbox_get_object_by_id("virtual-machines", 89)
-        - Find clusters: netbox_get_objects("clusters", {"site": "DM-Akron"})"""
-    )
-
-    system_prompt = SUB_AGENT_PROMPT_TEMPLATE.format(
-        domain="System",
-        expertise_areas="system monitoring and metadata",
-        detailed_expertise="""
-        - Change audit logs
-        - System status and diagnostics
-        - Historical tracking
-
-        **Your tools**:
-        - netbox_get_changelogs: Get change audit logs with filters
-        - netbox_get_objects: Access any NetBox object type
-
-        **Examples**:
-        - Recent changes: netbox_get_changelogs({"time_after": "2025-09-30T00:00:00Z"})
-        - Deletions: netbox_get_changelogs({"action": "delete"})"""
-    )
-
-    return [
-        {
-            "name": "dcim-specialist",
-            "description": "Physical infrastructure specialist. Handles devices, racks, sites, cables, and power. Returns structured DCIM data.",
-            "prompt": dcim_prompt,
-            "tools": simple_tools
-        },
-        {
-            "name": "ipam-specialist",
-            "description": "Network addressing specialist. Handles IPs, prefixes, VLANs, and VRFs. Returns structured IPAM data.",
-            "prompt": ipam_prompt,
-            "tools": simple_tools
-        },
-        {
-            "name": "tenancy-specialist",
-            "description": "Organizational structure specialist. Handles tenants, ownership, and contacts. Returns structured tenancy data.",
-            "prompt": tenancy_prompt,
-            "tools": simple_tools
-        },
-        {
-            "name": "virtualization-specialist",
-            "description": "Virtual infrastructure specialist. Handles VMs, clusters, and virtual interfaces. Returns structured virtualization data.",
-            "prompt": virtualization_prompt,
-            "tools": simple_tools
-        },
-        {
-            "name": "system-specialist",
-            "description": "System monitoring and metadata specialist. Handles changelogs and system queries.",
-            "prompt": system_prompt,
-            "tools": simple_tools
-        }
-    ]
+# =============================================================================
+# Sub-agents disabled - preserved in netbox_subagents_deprecated.py
+# =============================================================================
+# The create_netbox_subagents() function has been moved to
+# netbox_subagents_deprecated.py. Validation testing showed that direct
+# sequential execution in the main agent context is more efficient than
+# spawning specialized domain sub-agents (0 task() calls across all validation
+# queries). See VALIDATION_RESULTS_SUMMARY.md for details.
 
 # =============================================================================
 # DEPRECATED: Complex MCP Agent (62 tools) - NO LONGER FUNCTIONAL
@@ -832,24 +455,26 @@ def create_netbox_agent_with_simple_mcp(
     """
     print(f"🚀 Creating NetBox agent with simple MCP (3 tools)...")
 
-    # Three simple MCP tools
+    # Essential tools only (4 total)
     tool_list = [
         netbox_get_objects,
         netbox_get_object_by_id,
         netbox_get_changelogs,
-        # Strategic/discovery tools
-        list_available_tools,
-        get_tool_details,
-        show_cache_metrics,
-        think,
-        store_query
+        think
     ]
+    # Removed unused tools (0 calls in validation traces):
+    # - list_available_tools (redundant with prompts)
+    # - get_tool_details (redundant with prompts)
+    # - show_cache_metrics (debugging tool, should be external)
+    # - store_query (never used, contradicted prompt guidance)
 
     # Update think tool description
     think.__doc__ = THINK_TOOL_DESCRIPTION
 
-    # Create sub-agents with simple MCP tools
-    netbox_subagents = create_netbox_subagents()
+    # Sub-agents disabled - validation showed direct execution is optimal
+    # All cross-domain queries execute more efficiently with sequential tool calls
+    # in the main agent context rather than spawning specialized sub-agents
+    netbox_subagents = []
 
     # Combined instructions for simple MCP
     full_instructions = NETBOX_SUPERVISOR_INSTRUCTIONS + "\n\n" + SIMPLE_MCP_INSTRUCTIONS
@@ -857,11 +482,12 @@ def create_netbox_agent_with_simple_mcp(
     print(f"📊 Simple MCP Configuration:")
     print(f"  - Total Tools: {len(tool_list)}")
     print(f"  - NetBox MCP Tools: 3 (netbox_get_objects, netbox_get_object_by_id, netbox_get_changelogs)")
-    print(f"  - Strategic Tools: 5 (list_available_tools, get_tool_details, show_cache_metrics, think, store_query)")
-    print(f"  - Sub-agents: {len(netbox_subagents)} domain specialists")
+    print(f"  - Strategic Tools: 1 (think)")
+    print(f"  - Sub-agents: Disabled (direct execution mode)")
     print(f"  - Instructions Size: ~{len(full_instructions)//4} tokens")
     print(f"  - Caching Enabled: {enable_caching}")
     print(f"  - Cache TTL: {cache_ttl}")
+    print(f"  - Removed Tools: 4 (list_available_tools, get_tool_details, show_cache_metrics, store_query)")
 
     # Use CachedChatAnthropicFixed for proper caching with tool binding
     if enable_caching:
@@ -885,7 +511,11 @@ def create_netbox_agent_with_simple_mcp(
         full_instructions,  # Plain string to preserve tool binding
         model=model,
         subagents=netbox_subagents
-    ).with_config({"recursion_limit": 1000})
+    ).with_config({
+        # Base recursion limit (overridden at invocation time)
+        # See invocation config for actual limit used
+        "recursion_limit": 1000
+    })
 
     # Store caching config
     agent._cache_config = {
@@ -898,11 +528,8 @@ def create_netbox_agent_with_simple_mcp(
 
     return agent
 
-# Add new command to show cache metrics
-@tool
-async def show_cache_metrics() -> Dict[str, Any]:
-    """Display detailed cache performance metrics"""
-    return cache_monitor.get_metrics()
+# show_cache_metrics() removed - debugging tool should be called externally,
+# not by agent during execution. Preserved in netbox_tools_deprecated.py.
 
 # Add strategic think tool (following deep-agents-from-scratch pattern)
 @tool
@@ -920,26 +547,8 @@ async def think(reflection: str) -> str:
     """
     return f"Reflection recorded: {reflection}"
 
-# Optional: Store query in virtual file system for reference
-@tool
-async def store_query(
-    state: Annotated[DeepAgentState, InjectedState],
-    tool_call_id: Annotated[str, InjectedToolCallId]
-) -> Command:
-    """Store the user query in virtual filesystem for reference throughout execution."""
-    if state.get("messages") and len(state["messages"]) > 0:
-        user_query = state["messages"][0].content
-        files = state.get("files", {})
-        files["query.txt"] = user_query
-        return Command(
-            update={
-                "files": files,
-                "messages": [
-                    ToolMessage(f"Stored query for reference", tool_call_id=tool_call_id)
-                ]
-            }
-        )
-    return Command(update={})
+# store_query() removed - never used (0 calls in validation) and contradicted
+# prompt guidance. Preserved in netbox_tools_deprecated.py.
 
 # Create the global agent instance (will be initialized in main or when imported)
 
@@ -967,22 +576,34 @@ def extract_agent_response(result):
     except Exception as e:
         return f"Error extracting response: {e}", 0
 
-async def process_netbox_query(query: str, track_metrics: bool = True):
-    """Process a NetBox query with cache tracking"""
-    print(f"\n🔄 Processing: {query}")
+async def process_netbox_query(query: str, track_metrics: bool = True, verbose: bool = False):
+    """Process a NetBox query with cache tracking
+
+    Args:
+        query: The query string to process
+        track_metrics: Whether to track and log cache metrics (default: True)
+        verbose: Whether to show detailed metrics output (default: False)
+    """
+    if verbose:
+        print(f"\n🔄 Processing: {query}")
 
     try:
         start_time = time.time()
 
         result = await netbox_agent.ainvoke({
             "messages": [{"role": "user", "content": query}]
-        }, config={'recursion_limit': 50})
+        }, config={
+            # Actual recursion limit used (overrides base config)
+            # Set to 50 after validation showed queries need 12-15 steps
+            # Original limit of 20 caused Query 3 and 4 failures
+            'recursion_limit': 50
+        })
 
         elapsed = time.time() - start_time
         response, msg_count = extract_agent_response(result)
 
         # Enhanced cache metrics logging
-        if track_metrics:
+        if track_metrics and verbose:
             # First, try to extract detailed cache info from the last AI message
             ai_messages = [msg for msg in result.get('messages', []) if hasattr(msg, 'response_metadata')]
             if ai_messages:

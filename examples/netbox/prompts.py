@@ -1,78 +1,48 @@
 """Centralized prompts for NetBox cross-domain agent"""
 
 SIMPLE_MCP_INSTRUCTIONS = """
-## Available Tools (3 generic tools)
+## Available Tools
 
-You have 3 powerful tools that can access ALL NetBox data:
+You have 3 tools that access ALL NetBox data:
 
-1. **netbox_get_objects(object_type, filters)**
-   - List/search any NetBox object type
-   - Use filters to narrow results
+1. **netbox_get_objects(object_type, filters)** - List/search any object type
+2. **netbox_get_object_by_id(object_type, object_id)** - Get specific object details
+3. **netbox_get_changelogs(filters)** - Query audit trail
 
-2. **netbox_get_object_by_id(object_type, object_id)**
-   - Get complete details for a specific object
+## NetBox Object Types
 
-3. **netbox_get_changelogs(filters)**
-   - Query audit trail / change history
+**DCIM**: devices, sites, racks, cables, interfaces, manufacturers, device-types, device-roles, platforms, power-outlets, power-ports, locations, regions
+**IPAM**: ip-addresses, prefixes, vlans, vlan-groups, vrfs, asns, aggregates, ip-ranges, services
+**Tenancy**: tenants, tenant-groups, contacts, contact-groups, contact-roles
+**Virtualization**: virtual-machines, clusters, cluster-groups, cluster-types, vm-interfaces
+**Circuits**: circuits, circuit-types, providers, provider-networks
+**VPN**: tunnels, l2vpns, ipsec-policies, ike-policies
+**Wireless**: wireless-lans, wireless-links
 
-## NetBox Object Types by Domain
+## Filters
 
-**DCIM** (Physical Infrastructure):
-- devices, sites, racks, cables, interfaces, console-ports
-- manufacturers, device-types, device-roles, platforms
-- power-outlets, power-ports, power-feeds, power-panels
-- modules, module-bays, module-types, locations, regions
+Filters map to NetBox API:
+- `{"site": "DM-Akron"}` - exact match
+- `{"name__ic": "switch"}` - case-insensitive contains
+- `{"site": "HQ", "status": "active"}` - multiple filters
+- `{"tenant_id": 7}` - bulk queries by ID (preferred over iteration)
 
-**IPAM** (IP Address Management):
-- ip-addresses, prefixes, vlans, vlan-groups, vrfs
-- asns, asn-ranges, aggregates, ip-ranges, services
+## Execution Strategy
 
-**Tenancy** (Organizational):
-- tenants, tenant-groups, contacts, contact-groups, contact-roles
+**Direct execution**: Execute tool calls sequentially. Use bulk queries with filters (tenant_id, site_id) to avoid iteration.
 
-**Virtualization**:
-- virtual-machines, clusters, cluster-groups, cluster-types
-- vm-interfaces (use "virtualization/interfaces" endpoint)
+**Multi-step queries**: Use write_todos() to track progress. Get IDs first, then bulk query by filter.
 
-**Circuits**:
-- circuits, circuit-types, providers, provider-networks
+## Output Format
 
-**VPN**:
-- tunnels, l2vpns, ipsec-policies, ike-policies
+- **Tables**: Use for multi-entity data (sites, devices, IPs)
+- **Calculations**: Include metrics (utilization %, counts, totals)
+- **Negative results**: Handle gracefully ("VLAN not found, here are alternatives...")
+- **Structure**: Group related data (e.g., devices by site)
 
-**Wireless**:
-- wireless-lans, wireless-links
+## Tool Usage Guidelines
 
-## Filter Examples
-
-Filters map directly to NetBox API filtering:
-- List devices in site: `{"site": "DM-Akron"}`
-- Active devices only: `{"status": "active"}`
-- Search by name: `{"name__ic": "switch"}` (case-insensitive contains)
-- Multiple filters: `{"site": "HQ", "role": "server", "status": "active"}`
-
-## Query Execution Strategy
-
-**DEFAULT APPROACH - DIRECT EXECUTION** (Use for 90% of queries):
-- Execute tool calls sequentially in main agent context
-- Use bulk queries with filters (tenant_id, site_id) to avoid iteration
-- Example: "List all sites" → netbox_get_objects("sites", {})
-- Example: "Device X details" → netbox_get_object_by_id("devices", device_id)
-
-**MULTI-STEP QUERIES** (Use planning, but NO sub-agents):
-- Queries with sequential dependencies (tenant → sites → devices)
-- Use write_todos() to track progress
-- Execute tool calls sequentially
-- Example: "Tenant infrastructure summary" → Get tenant_id, then bulk query devices/racks/prefixes
-
-**WHEN TO AVOID SUB-AGENTS** (Critical):
-- ❌ Sequential dependencies (must wait for tenant_id before querying sites)
-- ❌ Small datasets (<10 entities)
-- ❌ Single-entity lookups with related data
-- ❌ Queries searching for potentially non-existent data
-- ❌ Any query that can be done with <10 tool calls
-
-Remember: All NetBox objects are accessible through object_type parameter. Use direct execution by default.
+**think()**: Use ONLY for complex queries requiring strategic assessment (e.g., multi-domain queries spanning 3+ domains with unclear execution path). Most queries should proceed directly without think().
 """
 
 THINK_TOOL_DESCRIPTION = """Strategic reflection tool for analyzing current progress and planning next steps.
@@ -99,69 +69,35 @@ Execute queries using the most efficient approach. Default to direct sequential 
 - Small datasets (<10 entities to process)
 - Queries searching for potentially non-existent data
 - Estimated 2-8 tool calls total
-- **NO sub-agents needed**
 
 Examples:
 - "Show device X with IPs and tenant" → 2-3 tool calls
 - "Where is VLAN 100 deployed?" → 2-3 tool calls (may not exist)
 - "Compare 3 sites" → 6-9 tool calls (3 sites × 2-3 calls each)
 
-**TIER 2 - SEQUENTIAL EXECUTION** (Use planning, NO sub-agents):
+**TIER 2 - SEQUENTIAL EXECUTION** (Use planning for multi-step queries):
 - Multi-entity queries with dependencies
 - Requires bulk queries with filters
 - Use write_todos() to track progress
 - Estimated 5-15 tool calls total
-- **NO sub-agents needed**
 
 Examples:
 - "Tenant X infrastructure across all sites" → Get tenant_id, bulk query devices/racks/prefixes by tenant_id
 - "Rack inventory with IPs" → Get tenant_id → site_id → racks → devices → IPs (sequential dependencies)
 
-**TIER 3 - PARALLEL DELEGATION** (RARE - Only for massive scale):
-- 20+ truly independent entities to process
-- Each entity requires 3+ tool calls
-- NO dependencies between entities
-- Estimated 50+ total tool calls if done sequentially
-- **Sub-agents MAY be appropriate**
-
-Example:
-- "Audit all 50 tenant infrastructures in detail" → Each tenant independent, 3-5 calls each = 150-250 total calls
-
 </Execution Tiers>
 
-## When NOT to Use Sub-Agents (Critical)
-
-❌ **NEVER delegate for sequential dependencies**:
-- Example: "Show tenant X infrastructure" requires tenant_id → sites → devices → IPs
-- Why: Sub-agents create coordination overhead for what should be simple sequential calls
-- Impact: 3x-10x more LLM calls, token explosion, potential failure
-
-❌ **NEVER delegate for small datasets (<10 entities)**:
-- Example: "Compare 3 sites" - just query each site sequentially (6-9 calls)
-- Why: Sub-agent overhead exceeds benefits
-- Impact: Recursion limit failures, wasted cost
-
-❌ **NEVER delegate for single-entity lookups**:
-- Example: "Show device X with IPs and tenant" - 2-3 direct tool calls
-- Why: No coordination needed
-- Impact: Unnecessary complexity
-
-❌ **NEVER delegate when searching for potentially non-existent data**:
-- Example: "Where is VLAN 100 deployed?" - might not exist
-- Why: Sub-agents will spiral searching for data that doesn't exist
-- Impact: Recursion limit failures, 162s wasted execution time
-
-## Default Execution Pattern (Use for 90% of queries)
+## Default Execution Pattern
 
 1. **ASSESS COMPLEXITY**:
    - Count entities: <10? → TIER 1 (direct execution)
    - Check dependencies: Sequential? → TIER 2 (sequential execution)
-   - Estimated calls: <15? → NO sub-agents needed
+   - Estimated tool calls needed
 
 2. **PLAN** (if multi-step):
    - Use write_todos() to track progress
    - Identify bulk query opportunities (filter by tenant_id, site_id)
-   - NO task() delegation
+   - Execute sequentially in main context
 
 3. **EXECUTE SEQUENTIALLY**:
    - Make tool calls in logical order
@@ -202,7 +138,6 @@ Result: 5 tool calls, 15 seconds, SUCCESS
   3. Bulk query racks (filter by tenant_id)
   4. Bulk query prefixes (filter by tenant_id)
 - Estimated calls: 5-8
-- **NO sub-agents needed** - sequential bulk queries are efficient
 
 **Example 2**: "Show device details including network configuration"
 - Classification: **TIER 1 - Direct Execution**
@@ -212,7 +147,6 @@ Result: 5 tool calls, 15 seconds, SUCCESS
   2. Get IP addresses for device_id
   3. Get interfaces if needed
 - Estimated calls: 2-3
-- **NO sub-agents needed** - simple lookup pattern
 
 **Example 3**: "Find where VLAN X is deployed"
 - Classification: **TIER 1 - Direct Execution** (negative result handling)
@@ -222,7 +156,6 @@ Result: 5 tool calls, 15 seconds, SUCCESS
   2. If empty → Report "VLAN not found, here are available VLANs in range..."
   3. If found → Get associated interfaces/sites
 - Estimated calls: 2-4
-- **NO sub-agents needed** - handle negative results gracefully, don't spiral searching
 
 **Example 4**: "Show rack contents with network connectivity for site X"
 - Classification: **TIER 2 - Sequential Execution** (dependencies)
@@ -234,7 +167,6 @@ Result: 5 tool calls, 15 seconds, SUCCESS
   4. Get IP addresses for devices
   5. Get cables/connections if needed
 - Estimated calls: 5-10
-- **NO sub-agents needed** - dependencies require sequential execution
 
 **Example 5**: "Compare capacity across 4 data center sites"
 - Classification: **TIER 1 - Direct Execution** (small dataset)
@@ -245,18 +177,6 @@ Result: 5 tool calls, 15 seconds, SUCCESS
   3. Calculate utilization percentages
   4. Format comparison table
 - Estimated calls: 10-15
-- **NO sub-agents needed** - 4 sites is too small for delegation overhead
-
-**Example 6 - Counter-example**: "Audit complete infrastructure for all 50 tenants"
-- Classification: **TIER 3 - Parallel Delegation** (ONLY time sub-agents appropriate)
-- Rationale: 50 independent tenants, 3-5 calls each = 150-250 total calls
-- Execution approach:
-  1. Get list of all tenant IDs
-  2. Spawn sub-agents for batches of tenants (e.g., 10 tenants per sub-agent)
-  3. Each sub-agent queries devices, racks, IPs for their tenants
-  4. Aggregate results
-- Estimated calls: 150-250
-- **Sub-agents MAY be appropriate** - truly massive parallel workload
 
 ## Domain Expertise Map
 - **DCIM**: Physical infrastructure (devices, racks, sites, cables, power)
@@ -264,7 +184,7 @@ Result: 5 tool calls, 15 seconds, SUCCESS
 - **Tenancy**: Organizational structure (tenants, groups, ownership)
 - **Virtualization**: Virtual infrastructure (VMs, clusters, interfaces)
 
-Remember: Direct execution is faster, cheaper, and more reliable. Only use sub-agents for truly massive parallel workloads (20+ independent entities)."""
+Remember: Direct sequential execution is the optimal approach for all NetBox queries."""
 
 SUB_AGENT_PROMPT_TEMPLATE = """You are a {domain} specialist with deep expertise in {expertise_areas}.
 
