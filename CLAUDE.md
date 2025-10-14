@@ -80,12 +80,157 @@ Framework supports MCP (Model Context Protocol) tools via langchain-mcp-adapters
 
 **Model Configuration**: Default model is "claude-sonnet-4-20250514". Supports per-subagent model override via model_settings.
 
+**Token Management:** Long-running agents accumulate context. Implement message trimming via `pre_model_hook` with `trim_messages` for 50-60% token reduction. See Token Usage & Context Management section below.
+
+**MCP Integration Best Practices:**
+- Use simple, generic tools (3-5 tools) over many specialized tools (50+ tools)
+- Manage MCP session lifecycle via singleton pattern
+- Initialize session before any tool calls
+- Clean up sessions on exit
+- See `examples/netbox/netbox_agent.py` for reference implementation
+
+## Token Usage & Context Management
+
+**Critical Finding:** Context accumulation is the primary cost driver in long-running agent loops.
+
+### Token Distribution Pattern
+- **Prompt tokens:** 99.1% of total tokens (context/history sent to LLM)
+- **Completion tokens:** 0.9% of total tokens (LLM responses)
+
+This means the problem is usually **not** high token generation, but excessive **input size** (context accumulation).
+
+### Root Causes of High Token Usage
+
+1. **Message History Accumulation**
+   - Every LLM call receives full conversation history by default
+   - Tool results accumulate in state["messages"] without trimming
+   - System prompt + tool schemas repeated each iteration
+   - Can reach 40k+ prompt tokens per LLM call
+
+2. **Tool Result Verbosity**
+   - Large API responses (e.g., NetBox objects) stored in full
+   - Old tool results rarely referenced but always sent to LLM
+   - Keeping last 2-3 tool results usually sufficient
+
+3. **Over-Planning**
+   - Excessive `write_todos` calls add message overhead
+   - Balance planning benefits vs token cost
+
+### Optimization Strategies
+
+**1. Message Trimming (Recommended)**
+- Use `pre_model_hook` with `trim_messages` utility
+- Available in current LangGraph stable release
+- Keeps recent context, trims old history
+- Expected: 50-60% token reduction
+- Example: 40k → 15-20k prompt tokens per call
+
+**2. Prompt Caching (Already Supported)**
+- System prompts and tool schemas automatically cached
+- Can achieve 80%+ cache hit rate
+- Reduces effective cost by ~70% on cached portions
+- Use extended-cache-ttl for best results
+
+**3. Tool Design**
+- Fewer, generic tools better than many specialized tools
+- Example: 3 generic tools vs 62 specialized = 800-1,600 tokens saved
+- Design tools to return concise, focused results
+
+**4. Strategic Planning**
+- Use `write_todos` for complex tasks (3+ steps)
+- Skip planning for simple queries (1-2 steps)
+- Monitor planning overhead vs execution efficiency
+
+### Implementation Guide
+
+See `examples/netbox/` for token optimization case study:
+- Baseline: 40k avg prompt tokens, 287k total per query
+- After tool reduction: Mixed results (2/3 improved, 1/3 regressed)
+- Solution: Add message trimming via pre_model_hook
+- Expected final: <20k prompt tokens, <150k total per query
+
+**Reference Documents:**
+- `examples/netbox/TOOL_REMOVAL_RESULTS.md` - Tool optimization analysis
+- `examples/netbox/VALIDATION_RESULTS_SUMMARY.md` - Performance metrics
+
 ## Key Files to Understand
 
-- **examples/research/research_agent.py** - Complete research agent with sub-agent delegation
-- **src/deepagents/graph.py** - Core agent construction logic
-- **test_concurrent_todos.py** - Example of concurrent task handling
+### Framework Core
+- **src/deepagents/graph.py** - Agent builder, creates React agents with task delegation
+- **src/deepagents/sub_agent.py** - Sub-agent implementation and task tool creation
+- **src/deepagents/prompts.py** - System prompts, BASE_AGENT_PROMPT template
+- **src/deepagents/tools.py** - Built-in tools (write_todos, file operations)
 - **README.md** - Comprehensive usage documentation and examples
+
+### Example Implementations
+
+**NetBox Agent (Primary Reference - Most Complex):**
+- **examples/netbox/netbox_agent.py** - Production-grade infrastructure query agent
+  - MCP integration (3 generic tools)
+  - Interactive CLI, async execution
+  - Strategic planning and coordination
+  - Prompt caching implementation
+- **examples/netbox/NETBOX_AGENT_COMPREHENSIVE_REPORT.md** - Complete architecture
+- **examples/netbox/TOOL_REMOVAL_RESULTS.md** - Token optimization findings
+- **examples/netbox/NO_SUBAGENTS_RATIONALE.md** - Design decisions
+
+**Research Agent (Simpler Reference):**
+- **examples/research/research_agent.py** - Research agent with sub-agent delegation
+- Demonstrates basic task delegation patterns
+- Simpler than NetBox agent, good starting point
+
+**Other Examples:**
+- **test_concurrent_todos.py** - Concurrent task handling patterns
+
+## NetBox Agent Example (Primary Reference Implementation)
+
+The NetBox agent (`examples/netbox/netbox_agent.py`) is the most comprehensive reference implementation in the repository, demonstrating advanced agent patterns in a real-world infrastructure management context.
+
+### Key Characteristics
+
+**Complexity:** Production-grade agent with:
+- MCP integration (3 generic tools via simple MCP server)
+- Interactive CLI with async execution
+- Strategic planning and cross-domain coordination
+- Prompt caching for cost optimization
+- Extensive validation and optimization work
+
+**Documentation:** 15+ markdown files in `examples/netbox/`:
+- `NETBOX_AGENT_COMPREHENSIVE_REPORT.md` - Complete architecture analysis
+- `TOOL_REMOVAL_RESULTS.md` - Token optimization findings
+- `NO_SUBAGENTS_RATIONALE.md` - Design decision rationale
+- `VALIDATION_RESULTS_SUMMARY.md` - Performance validation
+- `SIMPLEMCP_MIGRATION_COMPLETE.md` - MCP integration approach
+
+### Lessons Learned (Critical for Future Work)
+
+1. **MCP Integration Pattern**
+   - Simple 3-tool approach (get_objects, get_object_by_id, get_changelogs) outperforms 62 specialized tools
+   - Generic tools reduce token overhead by 800-1,600 tokens per request
+   - Session management via singleton pattern with stdio communication
+
+2. **Token Optimization Insights**
+   - Context accumulation is the primary cost driver (99.1% prompt tokens, 0.9% completion)
+   - Message trimming via `pre_model_hook` can reduce tokens by 50-60%
+   - Prompt caching provides 84%+ cache hit rate when properly implemented
+   - Tool result verbosity matters - keep last 2-3 results, trim older history
+
+3. **Sub-Agent Usage Patterns**
+   - Not always beneficial - removed from NetBox agent (0 usage in validation)
+   - Use only when true context isolation needed
+   - Avoid for simple data queries (self-contained, no long-horizon dependencies)
+
+4. **Planning Tool Guidelines**
+   - `write_todos` valuable for 3+ step tasks
+   - Over-planning can regress performance (Query 2: 0→5 write_todos = +73% duration)
+   - Balance between planning overhead and execution efficiency
+
+### When to Study NetBox Agent
+
+- **Building MCP-integrated agents** - Study MCP session management, tool design
+- **Production deployment** - Study error handling, async patterns, CLI design
+- **Token optimization** - Study caching strategy, tool reduction rationale
+- **Complex domain agents** - Study cross-domain coordination, strategic planning
 
 ## Development Notes
 
