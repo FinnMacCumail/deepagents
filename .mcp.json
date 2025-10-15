@@ -7,6 +7,12 @@
       "env": {
         "LANGSMITH_API_KEY": "YOUR_LANGSMITH_API_KEY_HERE"
       }
+    },
+    "fetch": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@tokenizin/mcp-npx-fetch"],
+      "env": {}
     }
   }
 }
