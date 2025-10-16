@@ -89,6 +89,195 @@ Framework supports MCP (Model Context Protocol) tools via langchain-mcp-adapters
 - Clean up sessions on exit
 - See `examples/netbox/netbox_agent.py` for reference implementation
 
+## LangChain v1 Migration Strategy
+
+**Status**: The DeepAgents framework is in the process of migrating to LangChain v1 core to achieve 60-70% reduction in prompt token usage through middleware architecture and improved message management.
+
+### Why v1 Now (Not Waiting for Stable)
+
+- **Current problem**: 40k+ prompt tokens per LLM call, 99.1% prompt vs 0.9% completion
+- **V1 solution**: SummarizationMiddleware and message management can reduce to 15k tokens
+- **Timeline**: Using v1-alpha now (October stable release timeline not acceptable for optimization needs)
+- **Risk mitigation**: Extensive validation with NetBox and research agents, all tests must pass
+
+### Breaking Changes from v0 to v1
+
+**API Changes:**
+- `create_react_agent` → `create_agent` (new API in langchain.agents)
+- `recursion_limit` pattern → middleware-based execution control
+- Legacy packages moved to `langchain-classic` (v0 reference only)
+
+**Installation:**
+```bash
+# Install v1-alpha packages
+pip install langchain@alpha langchain-core@alpha
+
+# Verify installation
+pip show langchain langchain-core
+```
+
+**Key V1 Features:**
+1. **SummarizationMiddleware**: Automatic context compression before model calls
+2. **Middleware hooks**: before_model, after_model, before_tool, after_tool
+3. **Structured output**: Enhanced type safety for agent responses
+4. **Message management**: Built-in trimming and summarization strategies
+
+### Migration Path
+
+1. **Phase 1**: Install v1-alpha packages, test compatibility
+2. **Phase 2**: Update src/deepagents/graph.py to use create_agent API
+3. **Phase 3**: Implement SummarizationMiddleware or pre_model_hook with trim_messages
+4. **Phase 4**: Validate with real-world queries (NetBox, research agents)
+5. **Phase 5**: Measure token reduction via LangSmith traces
+
+### When to Use v1 vs v0
+
+**Use V1 for:**
+- New agent implementations (get token benefits from day one)
+- Agents with high token usage (>30k prompt tokens per call)
+- Projects requiring long-running conversations
+- Production systems where cost optimization matters
+
+**Use V0 (temporary) for:**
+- Quick prototypes where token usage not yet measured
+- Compatibility testing during migration
+- Reference implementations (will be deprecated)
+
+**Reference:** See `initial-langchain-v1-optimization.md` for detailed migration requirements and `examples/netbox/TOOL_REMOVAL_RESULTS.md` for token analysis.
+
+## Middleware Architecture Patterns
+
+LangChain v1 introduces a powerful middleware system for managing agent execution, replacing the recursion_limit pattern with more sophisticated context and execution control.
+
+### SummarizationMiddleware (Primary Pattern)
+
+**Purpose**: Automatically compresses conversation history before each model call, preventing unbounded context growth.
+
+**Configuration:**
+```python
+from langchain.middleware import SummarizationMiddleware
+
+middleware = SummarizationMiddleware(
+    max_tokens=15000,              # Target token count (down from 40k)
+    keep_system_prompt=True,       # Always preserve system instructions
+    keep_last_n_tool_calls=3,      # Keep recent tool context
+    summarize_older=True,          # Compress older messages
+    summary_instruction="Concisely summarize the conversation history, preserving key findings and decisions."
+)
+```
+
+**When to use:**
+- Agents with long-running conversations (10+ turns)
+- High token usage scenarios (>30k prompt tokens)
+- Multi-step tasks requiring context across many tool calls
+
+### Middleware Hooks (Advanced Pattern)
+
+**Available hooks:**
+- `before_model`: Executed before each LLM call (trim messages, validate state)
+- `after_model`: Executed after each LLM response (process output, update state)
+- `before_tool`: Executed before each tool call (validate parameters, log)
+- `after_tool`: Executed after each tool response (trim results, extract key data)
+
+**Example - Message Trimming Hook:**
+```python
+from langchain_core.messages import trim_messages
+
+def before_model_hook(state):
+    """Trim messages before sending to LLM."""
+    messages = state.get("messages", [])
+
+    # Keep system prompt + last 3 tool calls + current query
+    trimmed = trim_messages(
+        messages,
+        strategy="last",
+        token_counter=len,  # Or use actual token counter
+        max_tokens=15000,
+        include_system=True,
+        start_on="human",
+    )
+
+    return {"messages": trimmed}
+```
+
+**Example - Tool Result Compression Hook:**
+```python
+def after_tool_hook(state, tool_result):
+    """Compress verbose tool results."""
+    # For large API responses, keep only essential fields
+    if len(str(tool_result)) > 5000:
+        # Extract key data, discard verbose details
+        return extract_essential_fields(tool_result)
+    return tool_result
+```
+
+### Pre-Model Hook Pattern (Current v0 Approach)
+
+The current DeepAgents implementation uses `pre_model_hook` with `trim_messages` utility. This pattern works in both v0 and v1, but v1's SummarizationMiddleware is more sophisticated.
+
+**Current pattern:**
+```python
+from langchain_core.messages import trim_messages
+
+def pre_model_hook(state):
+    messages = trim_messages(
+        state["messages"],
+        strategy="last",
+        max_tokens=15000,
+        include_system=True,
+    )
+    return {"messages": messages}
+
+# In agent creation
+create_react_agent(  # v0
+    model,
+    tools=tools,
+    pre_model_hook=pre_model_hook,  # Applied before each LLM call
+)
+```
+
+### When to Use Each Pattern
+
+**SummarizationMiddleware** (v1 recommended):
+- Automatic, intelligent context compression
+- Preserves semantic meaning through summarization
+- Best for long-running, complex conversations
+- Requires v1-alpha installation
+
+**Manual trim_messages Hook** (v0 compatible):
+- Simple, predictable token reduction
+- Keep last N messages strategy
+- Works in current stable LangGraph
+- Good for straightforward trimming needs
+
+**Custom Middleware** (advanced):
+- Domain-specific context management
+- Complex state transformations
+- Integration with external systems (logging, monitoring)
+- Full control over execution flow
+
+### Migration from recursion_limit
+
+**Old pattern (v0):**
+```python
+agent = create_deep_agent(...).with_config({"recursion_limit": 1000})
+```
+
+**New pattern (v1):**
+```python
+agent = create_agent(
+    ...,
+    middleware=[
+        SummarizationMiddleware(max_tokens=15000),
+        ExecutionControlMiddleware(max_steps=100),
+    ]
+)
+```
+
+Middleware provides finer-grained control over execution, separating context management from step limits.
+
+**Reference:** See v1 docs at https://docs.langchain.com/oss/python/releases/langchain-v1 for complete middleware API.
+
 ## Token Usage & Context Management
 
 **Critical Finding:** Context accumulation is the primary cost driver in long-running agent loops.
