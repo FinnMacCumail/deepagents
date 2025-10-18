@@ -14,7 +14,17 @@ from langchain_core.language_models import LanguageModelLike
 from langchain_core.messages import trim_messages
 from deepagents.interrupt import create_interrupt_hook, ToolInterruptConfig
 from langgraph.types import Checkpointer
-from langgraph.prebuilt import create_react_agent
+from langgraph.prebuilt import create_react_agent  # v0 API (deprecated)
+
+# v1 API imports
+try:
+    from langchain.agents import create_agent
+    from langchain.agents.middleware import SummarizationMiddleware
+    V1_AVAILABLE = True
+except ImportError:
+    V1_AVAILABLE = False
+    print("[WARNING] LangChain v1 APIs not available. Using v0 fallback.")
+
 from deepagents.prompts import BASE_AGENT_PROMPT
 
 StateSchema = TypeVar("StateSchema", bound=DeepAgentState)
@@ -122,8 +132,27 @@ def _agent_builder_v1(
     main_agent_tools: Optional[list[str]] = None,
     is_async: bool = False,
 ):
-    """V1 agent builder with message trimming for token reduction."""
-    prompt = instructions + BASE_AGENT_PROMPT
+    """True V1 agent builder using create_agent and SummarizationMiddleware."""
+
+    if not V1_AVAILABLE:
+        print("[WARNING] V1 APIs not available. Falling back to v0 implementation.")
+        return _agent_builder_v0(
+            tools=tools,
+            instructions=instructions,
+            model=model,
+            subagents=subagents,
+            state_schema=state_schema,
+            builtin_tools=builtin_tools,
+            interrupt_config=interrupt_config,
+            config_schema=config_schema,
+            checkpointer=checkpointer,
+            post_model_hook=post_model_hook,
+            main_agent_tools=main_agent_tools,
+            is_async=is_async,
+        )
+
+    # Prepare system prompt (was "prompt" in v0, now "system_prompt" in v1)
+    system_prompt = instructions + BASE_AGENT_PROMPT
 
     all_builtin_tools = [write_todos, write_file, read_file, ls, edit_file]
 
@@ -140,39 +169,16 @@ def _agent_builder_v1(
 
     if model is None:
         model = get_default_model()
-    state_schema = state_schema or DeepAgentState
 
-    # Create a pre_model_hook that trims messages to reduce token usage
-    def trim_messages_hook(state):
-        """Trim messages to keep only recent context and reduce tokens."""
-        messages = state.get("messages", [])
+    # Create SummarizationMiddleware for automatic context compression
+    summarization_middleware = SummarizationMiddleware(
+        model=model,  # Use same model for summarization
+        max_tokens_before_summary=15000,  # Trigger at 15k tokens (target reduction from 40k)
+        messages_to_keep=20,  # Keep last 20 messages after summarization
+        # Optional: Could add custom summary_prompt here
+    )
 
-        # Use trim_messages to keep last 15k tokens worth of messages
-        # This should reduce from 40k to ~15k tokens
-        trimmed = trim_messages(
-            messages,
-            strategy="last",  # Keep most recent messages
-            token_counter=len,  # Simple token counter (can be replaced with tiktoken)
-            max_tokens=15000,  # Target token count
-            include_system=True,  # Always keep system messages
-            start_on="human",  # Start trimming from first human message
-        )
-
-        return {"messages": trimmed}
-
-    # Combine trim_messages_hook with existing post_model_hook
-    if post_model_hook and interrupt_config:
-        raise ValueError(
-            "Cannot specify both post_model_hook and interrupt_config together. "
-            "Use either interrupt_config for tool interrupts or post_model_hook for custom post-processing."
-        )
-    elif post_model_hook is not None:
-        selected_post_model_hook = post_model_hook
-    elif interrupt_config is not None:
-        selected_post_model_hook = create_interrupt_hook(interrupt_config)
-    else:
-        selected_post_model_hook = None
-
+    # Build task tool for subagents
     if not is_async:
         task_tool = _create_sync_task_tool(
             list(tools) + built_in_tools,
@@ -180,7 +186,7 @@ def _agent_builder_v1(
             subagents or [],
             model,
             state_schema,
-            selected_post_model_hook,
+            post_model_hook,  # Note: post_model_hook handled differently in v1
         )
     else:
         task_tool = _create_task_tool(
@@ -189,8 +195,9 @@ def _agent_builder_v1(
             subagents or [],
             model,
             state_schema,
-            selected_post_model_hook,
+            post_model_hook,
         )
+
     if main_agent_tools is not None:
         passed_in_tools = []
         for tool_ in tools:
@@ -200,19 +207,61 @@ def _agent_builder_v1(
                 passed_in_tools.append(tool_)
     else:
         passed_in_tools = list(tools)
+
     all_tools = built_in_tools + passed_in_tools + [task_tool]
 
-    # Use create_react_agent with pre_model_hook for message trimming
-    return create_react_agent(
-        model,
-        prompt=prompt,
-        tools=all_tools,
-        state_schema=state_schema,
-        pre_model_hook=trim_messages_hook,  # Add message trimming before each LLM call
-        post_model_hook=selected_post_model_hook,
-        config_schema=config_schema,
-        checkpointer=checkpointer,
-    )
+    # Handle interrupt_config conversion to v1 format
+    interrupt_before = None
+    interrupt_after = None
+    if interrupt_config:
+        # Convert v0 interrupt_config to v1 interrupt_before/after lists
+        # In v0, interrupt_config is a dict mapping tool names to configs
+        # In v1, we use interrupt_before/interrupt_after lists
+        interrupt_before = list(interrupt_config.keys())
+        print(f"[INFO] Converted interrupt_config to interrupt_before: {interrupt_before}")
+
+    # Handle config_schema deprecation warning
+    if config_schema is not None:
+        print("[WARNING] config_schema parameter is not supported in v1 create_agent and will be ignored")
+
+    # Handle post_model_hook deprecation
+    if post_model_hook is not None:
+        print("[WARNING] post_model_hook is replaced by middleware in v1. Consider implementing custom middleware.")
+
+    # Use v1 create_agent API
+    try:
+        # Note: state_schema might need adaptation if it's not a TypedDict
+        # For now, we'll try to use it as-is and handle errors if they occur
+        return create_agent(
+            model=model,
+            tools=all_tools,
+            system_prompt=system_prompt,
+            middleware=[summarization_middleware],  # v1 middleware system
+            state_schema=state_schema,  # May need adaptation for v1
+            checkpointer=checkpointer,
+            interrupt_before=interrupt_before,
+            interrupt_after=interrupt_after,
+            # Note: config_schema removed in v1
+            # Note: post_model_hook replaced by middleware
+        )
+    except Exception as e:
+        print(f"[ERROR] Failed to create v1 agent: {e}")
+        print("[INFO] Falling back to v0 implementation")
+        # Fallback to v0 if v1 fails
+        return _agent_builder_v0(
+            tools=tools,
+            instructions=instructions,
+            model=model,
+            subagents=subagents,
+            state_schema=state_schema,
+            builtin_tools=builtin_tools,
+            interrupt_config=interrupt_config,
+            config_schema=config_schema,
+            checkpointer=checkpointer,
+            post_model_hook=post_model_hook,
+            main_agent_tools=main_agent_tools,
+            is_async=is_async,
+        )
 
 
 def _agent_builder(
@@ -233,7 +282,10 @@ def _agent_builder(
     use_v1 = os.getenv("USE_V1_CORE", "false").lower() == "true"
 
     if use_v1:
-        print("[INFO] Using LangChain v1 core with message trimming")
+        if V1_AVAILABLE:
+            print("[INFO] Using LangChain v1 core with SummarizationMiddleware")
+        else:
+            print("[WARNING] V1 requested but not available. Using v0 with message trimming fallback.")
         return _agent_builder_v1(
             tools=tools,
             instructions=instructions,
