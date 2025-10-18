@@ -10,7 +10,7 @@ DEEPAGENTS_SRC_PATH = "/home/ola/dev/rnd/deepagents/src"
 if DEEPAGENTS_SRC_PATH not in sys.path:
     sys.path.insert(0, DEEPAGENTS_SRC_PATH)
 
-from deepagents import async_create_deep_agent
+from deepagents import create_deep_agent
 from deepagents.cached_model import get_cached_model
 from deepagents.state import DeepAgentState
 from langchain_core.tools import tool, ToolException
@@ -506,9 +506,9 @@ def create_netbox_agent_with_simple_mcp(
 
     # Create agent with PLAIN STRING (not SystemMessage) to preserve tool binding
     # CachedChatAnthropicFixed will add cache_control internally
-    agent = async_create_deep_agent(
-        tool_list,
-        full_instructions,  # Plain string to preserve tool binding
+    agent = create_deep_agent(
+        tools=tool_list,
+        system_prompt=full_instructions,  # Plain string to preserve tool binding
         model=model,
         subagents=netbox_subagents
     ).with_config({
