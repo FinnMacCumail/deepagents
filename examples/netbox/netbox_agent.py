@@ -13,7 +13,7 @@ if DEEPAGENTS_SRC_PATH not in sys.path:
 from deepagents import create_deep_agent
 from deepagents.cached_model import get_cached_model
 from deepagents.state import DeepAgentState
-from langchain_core.tools import tool, ToolException
+from langchain_core.tools import tool
 from langchain_core.tools import InjectedToolCallId
 from langchain_core.messages import ToolMessage, SystemMessage, BaseMessage
 from langchain_anthropic import ChatAnthropic
@@ -127,7 +127,11 @@ async def call_mcp_tool(tool_name: str, arguments: dict) -> dict:
             if len(result.content) == 1:
                 content = result.content[0]
                 if hasattr(content, 'text'):
-                    return json.loads(content.text)
+                    try:
+                        return json.loads(content.text)
+                    except (json.JSONDecodeError, ValueError) as e:
+                        # Return error dict for invalid JSON instead of raising
+                        return {"error": f"Invalid JSON response: {content.text[:100] if content.text else 'empty'}"}
                 return {"result": str(content)}
 
             # Multiple content items - each is a separate JSON object in an array
@@ -147,9 +151,10 @@ async def call_mcp_tool(tool_name: str, arguments: dict) -> dict:
 
         return {"result": str(result)}
     except Exception as e:
-        # Raise ToolException to signal explicit error to agent
-        # This prevents agent from treating error dict as successful data
-        raise ToolException(f"Tool '{tool_name}' failed: {str(e)}")
+        # Return error dict instead of raising ToolException
+        # This allows the agent to see the error and continue execution
+        # rather than terminating the entire run
+        return {"error": f"Tool '{tool_name}' failed: {str(e)}"}
 
 
 # =============================================================================
