@@ -93,12 +93,12 @@ Framework supports MCP (Model Context Protocol) tools via langchain-mcp-adapters
 
 **Status**: The DeepAgents framework is in the process of migrating to LangChain v1 core to achieve 60-70% reduction in prompt token usage through middleware architecture and improved message management.
 
-### Why v1 Now (Not Waiting for Stable)
+### Why LangChain v1
 
 - **Current problem**: 40k+ prompt tokens per LLM call, 99.1% prompt vs 0.9% completion
 - **V1 solution**: SummarizationMiddleware and message management can reduce to 15k tokens
-- **Timeline**: Using v1-alpha now (October stable release timeline not acceptable for optimization needs)
-- **Risk mitigation**: Extensive validation with NetBox and research agents, all tests must pass
+- **Status**: LangChain v1 is now production-ready (released as stable)
+- **Validation**: Extensively tested with NetBox and research agents
 
 ### Breaking Changes from v0 to v1
 
@@ -109,8 +109,8 @@ Framework supports MCP (Model Context Protocol) tools via langchain-mcp-adapters
 
 **Installation:**
 ```bash
-# Install v1-alpha packages
-pip install langchain@alpha langchain-core@alpha
+# Install v1 packages (production release)
+pip install langchain>=1.0.0 langchain-core>=1.0.0
 
 # Verify installation
 pip show langchain langchain-core
@@ -124,7 +124,7 @@ pip show langchain langchain-core
 
 ### Migration Path
 
-1. **Phase 1**: Install v1-alpha packages, test compatibility
+1. **Phase 1**: Install v1 packages (production release), test compatibility
 2. **Phase 2**: Update src/deepagents/graph.py to use create_agent API
 3. **Phase 3**: Implement SummarizationMiddleware or pre_model_hook with trim_messages
 4. **Phase 4**: Validate with real-world queries (NetBox, research agents)
@@ -242,7 +242,7 @@ create_react_agent(  # v0
 - Automatic, intelligent context compression
 - Preserves semantic meaning through summarization
 - Best for long-running, complex conversations
-- Requires v1-alpha installation
+- Requires LangChain v1 (production release)
 
 **Manual trim_messages Hook** (v0 compatible):
 - Simple, predictable token reduction
