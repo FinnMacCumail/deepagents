@@ -27,8 +27,8 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 # Simple MCP Server Configuration
-# Path to simple netbox-mcp-server (3 tools instead of 62)
-SIMPLE_MCP_SERVER_PATH = "/home/ola/dev/rnd/mcp/testmcp/netbox-mcp-server/server.py"
+# Path to simple netbox-mcp-server (4 tools with v1.0.0)
+NETBOX_MCP_SERVER_DIR = "/home/ola/dev/rnd/mcp/testmcp/netbox-mcp-server"
 
 # Import prompts from centralized module
 from prompts import (
@@ -72,9 +72,15 @@ async def get_mcp_session():
             raise ValueError("NETBOX_URL and NETBOX_TOKEN environment variables must be set")
 
         # Create MCP server parameters for stdio communication
+        # Using uv run netbox-mcp-server (v1.0.0 command structure)
         server_params = StdioServerParameters(
-            command="python",
-            args=[SIMPLE_MCP_SERVER_PATH],
+            command="uv",
+            args=[
+                "--directory",
+                NETBOX_MCP_SERVER_DIR,
+                "run",
+                "netbox-mcp-server"
+            ],
             env={
                 **os.environ,  # Pass through all env vars including NETBOX_URL and NETBOX_TOKEN
             }
@@ -162,64 +168,121 @@ async def call_mcp_tool(tool_name: str, arguments: dict) -> dict:
 # =============================================================================
 
 @tool
-async def netbox_get_objects(object_type: str, filters: dict = None) -> dict:
+async def netbox_get_objects(
+    object_type: str,
+    filters: dict = None,
+    fields: list = None,
+    brief: bool = False,
+    limit: int = 5,
+    offset: int = 0,
+    ordering: str = None
+) -> dict:
     """Get NetBox objects with optional filtering via MCP server.
 
     This is a generic tool that can retrieve ANY NetBox object type.
 
     Args:
-        object_type: NetBox object type. Common types include:
-            DCIM: devices, sites, racks, cables, interfaces, manufacturers,
-                  device-types, device-roles, power-outlets, power-ports
-            IPAM: ip-addresses, prefixes, vlans, vlan-groups, vrfs, asns
-            Tenancy: tenants, tenant-groups, contacts
-            Virtualization: virtual-machines, clusters, vm-interfaces
+        object_type: NetBox object type in app.model format. Common types:
+            DCIM: dcim.device, dcim.site, dcim.rack, dcim.cable, dcim.interface
+                  dcim.manufacturer, dcim.devicetype, dcim.devicerole, dcim.platform
+            IPAM: ipam.ipaddress, ipam.prefix, ipam.vlan, ipam.vlangroup, ipam.vrf, ipam.asn
+            Tenancy: tenancy.tenant, tenancy.tenantgroup, tenancy.contact
+            Virtualization: virtualization.virtualmachine, virtualization.cluster
 
         filters: Optional dict of API filters. Examples:
             {"site": "DM-Akron"} - Filter by site name
             {"status": "active"} - Filter by status
             {"name__ic": "switch"} - Case-insensitive name contains
 
+        fields: Optional list of fields to return (token optimization).
+            Example: ["id", "name", "status"] reduces 5000 → 500 tokens (90%)
+            Common patterns:
+            - Devices: ["id", "name", "status", "device_type", "site"]
+            - IPs: ["id", "address", "status", "dns_name"]
+            - Sites: ["id", "name", "status", "region"]
+
+        brief: Return minimal object representation (default: False)
+
+        limit: Maximum results per page (default: 5, max: 100)
+
+        offset: Pagination offset (default: 0)
+
+        ordering: Sort by field(s). Examples: "name", "-created", ["name", "status"]
+
     Returns:
         List of objects matching the filters
 
     Examples:
-        - List all sites: netbox_get_objects("sites", {})
-        - Active devices in site: netbox_get_objects("devices", {"site": "DM-Akron", "status": "active"})
-        - Find IPs in VRF: netbox_get_objects("ip-addresses", {"vrf": "prod"})
+        - List all sites: netbox_get_objects("dcim.site", {})
+        - Active devices in site: netbox_get_objects("dcim.device", {"site": "DM-Akron", "status": "active"})
+        - Find IPs with minimal data: netbox_get_objects("ipam.ipaddress", {"vrf": "prod"}, fields=["id", "address"])
+        - Get 10 devices sorted by name: netbox_get_objects("dcim.device", {}, limit=10, ordering="name")
     """
     filters = filters or {}
 
-    # Call the MCP server's netbox_get_objects tool
-    result = await call_mcp_tool("netbox_get_objects", {
+    # Build arguments for MCP tool
+    arguments = {
         "object_type": object_type,
-        "filters": filters
-    })
+        "filters": filters,
+        "limit": limit,
+        "offset": offset,
+        "brief": brief
+    }
+
+    # Add optional parameters only if provided
+    if fields is not None:
+        arguments["fields"] = fields
+    if ordering is not None:
+        arguments["ordering"] = ordering
+
+    # Call the MCP server's netbox_get_objects tool
+    result = await call_mcp_tool("netbox_get_objects", arguments)
 
     return result
 
 
 @tool
-async def netbox_get_object_by_id(object_type: str, object_id: int) -> dict:
+async def netbox_get_object_by_id(
+    object_type: str,
+    object_id: int,
+    fields: list = None,
+    brief: bool = False
+) -> dict:
     """Get detailed information about a specific NetBox object by its ID via MCP server.
 
     Args:
-        object_type: NetBox object type (e.g., "devices", "sites", "ip-addresses")
+        object_type: NetBox object type in app.model format (e.g., "dcim.device", "dcim.site", "ipam.ipaddress")
         object_id: The numeric ID of the object
 
+        fields: Optional list of fields to return (token optimization).
+            Example: ["id", "name", "status"] for minimal response
+            Leave None for complete object details
+
+        brief: Return minimal object representation (default: False)
+            Use for quick ID/name lookups without full details
+
     Returns:
-        Complete object details including all relationships
+        Complete object details including all relationships (or filtered if fields specified)
 
     Examples:
-        - Get device details: netbox_get_object_by_id("devices", 123)
-        - Get site info: netbox_get_object_by_id("sites", 5)
-        - Get IP details: netbox_get_object_by_id("ip-addresses", 456)
+        - Get full device details: netbox_get_object_by_id("dcim.device", 123)
+        - Get device name only: netbox_get_object_by_id("dcim.device", 123, fields=["id", "name"])
+        - Get brief site info: netbox_get_object_by_id("dcim.site", 5, brief=True)
+        - Get IP with specific fields: netbox_get_object_by_id("ipam.ipaddress", 456, fields=["address", "dns_name"])
     """
-    # Call the MCP server's netbox_get_object_by_id tool
-    result = await call_mcp_tool("netbox_get_object_by_id", {
+    # Build arguments for MCP tool
+    arguments = {
         "object_type": object_type,
-        "object_id": object_id
-    })
+        "object_id": object_id,
+        "brief": brief
+    }
+
+    # Add optional parameters only if provided
+    if fields is not None:
+        arguments["fields"] = fields
+
+    # Call the MCP server's netbox_get_object_by_id tool
+    result = await call_mcp_tool("netbox_get_object_by_id", arguments)
 
     return result
 
@@ -255,6 +318,57 @@ async def netbox_get_changelogs(filters: dict = None) -> dict:
     result = await call_mcp_tool("netbox_get_changelogs", {
         "filters": filters
     })
+
+    return result
+
+
+@tool
+async def netbox_search_objects(
+    query: str,
+    object_types: list = None,
+    fields: list = None,
+    limit: int = 5
+) -> dict:
+    """Search across multiple NetBox object types using natural language query.
+
+    This tool performs global search across NetBox infrastructure, making it ideal
+    for exploratory queries where you don't know the exact object type.
+
+    Args:
+        query: Search term (e.g., "switch", "192.168", "Cisco")
+
+        object_types: Optional list of object types to search in app.model format. If None, searches common types.
+            Example: ["dcim.device", "ipam.ipaddress", "dcim.site"]
+            Leave None to search across common types: dcim.device, dcim.site, dcim.rack, ipam.ipaddress, ipam.prefix
+
+        fields: Optional list of fields to return per object type (token optimization)
+            Example: ["id", "name", "status"]
+
+        limit: Maximum results per object type (default: 5)
+
+    Returns:
+        Dictionary with results grouped by object type
+
+    Examples:
+        - Find anything named "core": netbox_search_objects("core")
+        - Search devices and sites: netbox_search_objects("DC1", object_types=["dcim.device", "dcim.site"])
+        - Search with minimal data: netbox_search_objects("switch", fields=["id", "name"])
+        - Find IP addresses: netbox_search_objects("192.168.1", object_types=["ipam.ipaddress"])
+    """
+    # Build arguments for MCP tool
+    arguments = {
+        "query": query,
+        "limit": limit
+    }
+
+    # Add optional parameters only if provided
+    if object_types is not None:
+        arguments["object_types"] = object_types
+    if fields is not None:
+        arguments["fields"] = fields
+
+    # Call the MCP server's netbox_search_objects tool
+    result = await call_mcp_tool("netbox_search_objects", arguments)
 
     return result
 
@@ -458,13 +572,14 @@ def create_netbox_agent_with_simple_mcp(
         enable_caching: Enable Claude API prompt caching
         cache_ttl: Cache duration ("default" for 5min or "1h" for 1 hour)
     """
-    print(f"🚀 Creating NetBox agent with simple MCP (3 tools)...")
+    print(f"🚀 Creating NetBox agent with simple MCP (4 tools)...")
 
-    # Essential tools only (4 total)
+    # Essential tools only (5 total: 4 MCP + 1 strategic)
     tool_list = [
         netbox_get_objects,
         netbox_get_object_by_id,
         netbox_get_changelogs,
+        netbox_search_objects,
         think
     ]
     # Removed unused tools (0 calls in validation traces):
@@ -486,13 +601,13 @@ def create_netbox_agent_with_simple_mcp(
 
     print(f"📊 Simple MCP Configuration:")
     print(f"  - Total Tools: {len(tool_list)}")
-    print(f"  - NetBox MCP Tools: 3 (netbox_get_objects, netbox_get_object_by_id, netbox_get_changelogs)")
+    print(f"  - NetBox MCP Tools: 4 (get_objects, get_object_by_id, get_changelogs, search_objects)")
     print(f"  - Strategic Tools: 1 (think)")
     print(f"  - Sub-agents: Disabled (direct execution mode)")
     print(f"  - Instructions Size: ~{len(full_instructions)//4} tokens")
     print(f"  - Caching Enabled: {enable_caching}")
     print(f"  - Cache TTL: {cache_ttl}")
-    print(f"  - Removed Tools: 4 (list_available_tools, get_tool_details, show_cache_metrics, store_query)")
+    print(f"  - New in v1.0: Field filtering, pagination, search (90% token reduction possible)")
 
     # Use CachedChatAnthropicFixed for proper caching with tool binding
     if enable_caching:
@@ -706,12 +821,14 @@ async def main():
     """Interactive NetBox agent CLI with continuous query loop"""
 
     # Welcome message
-    print("🚀 NetBox Interactive Agent CLI (Simple MCP)")
-    print("Agent has access to 3 generic MCP tools:")
+    print("🚀 NetBox Interactive Agent CLI (v1.0 - Enhanced)")
+    print("Agent has access to 4 MCP tools with field filtering:")
     print("  • netbox_get_objects - List/search any NetBox object type")
     print("  • netbox_get_object_by_id - Get detailed object information")
     print("  • netbox_get_changelogs - Query change audit logs")
-    print("\nSupports ALL NetBox object types via object_type parameter")
+    print("  • netbox_search_objects - Global search across object types (NEW)")
+    print("\n✨ New Features: Field filtering (90% token reduction), pagination, brief mode")
+    print("Supports ALL NetBox object types via object_type parameter")
     print("\nAvailable commands:")
     print("  - Type any NetBox query in natural language")
     print("  - 'exit', 'quit', or 'q' to quit")

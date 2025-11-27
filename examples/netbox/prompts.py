@@ -3,21 +3,43 @@
 SIMPLE_MCP_INSTRUCTIONS = """
 ## Available Tools
 
-You have 3 tools that access ALL NetBox data:
+You have 4 tools that access ALL NetBox data with field filtering support:
 
-1. **netbox_get_objects(object_type, filters)** - List/search any object type
-2. **netbox_get_object_by_id(object_type, object_id)** - Get specific object details
+1. **netbox_get_objects(object_type, filters, fields, brief, limit, offset, ordering)** - List/search any object type
+2. **netbox_get_object_by_id(object_type, object_id, fields, brief)** - Get specific object details
 3. **netbox_get_changelogs(filters)** - Query audit trail
+4. **netbox_search_objects(query, object_types, fields, limit)** - Global search across object types
 
-## NetBox Object Types
+## NetBox Object Types (v1.0 Format)
 
-**DCIM**: devices, sites, racks, cables, interfaces, manufacturers, device-types, device-roles, platforms, power-outlets, power-ports, locations, regions
-**IPAM**: ip-addresses, prefixes, vlans, vlan-groups, vrfs, asns, aggregates, ip-ranges, services
-**Tenancy**: tenants, tenant-groups, contacts, contact-groups, contact-roles
-**Virtualization**: virtual-machines, clusters, cluster-groups, cluster-types, vm-interfaces
-**Circuits**: circuits, circuit-types, providers, provider-networks
-**VPN**: tunnels, l2vpns, ipsec-policies, ike-policies
-**Wireless**: wireless-lans, wireless-links
+**IMPORTANT:** Object types use dotted `app.model` format (e.g., `dcim.device`, not `devices`).
+
+**DCIM** (Data Center Infrastructure):
+- dcim.device, dcim.site, dcim.rack, dcim.cable, dcim.interface
+- dcim.manufacturer, dcim.devicetype, dcim.devicerole, dcim.platform
+- dcim.poweroutlet, dcim.powerport, dcim.location, dcim.region
+
+**IPAM** (IP Address Management):
+- ipam.ipaddress, ipam.prefix, ipam.vlan, ipam.vlangroup, ipam.vrf
+- ipam.asn, ipam.aggregate, ipam.iprange, ipam.service
+
+**Tenancy**:
+- tenancy.tenant, tenancy.tenantgroup, tenancy.contact
+- tenancy.contactgroup, tenancy.contactrole
+
+**Virtualization**:
+- virtualization.virtualmachine, virtualization.cluster
+- virtualization.clustergroup, virtualization.clustertype, virtualization.vminterface
+
+**Circuits**:
+- circuits.circuit, circuits.circuittype, circuits.provider
+- circuits.providernetwork
+
+**VPN**:
+- vpn.tunnel, vpn.l2vpn, vpn.ipsecpolicy, vpn.ikepolicy
+
+**Wireless**:
+- wireless.wirelesslan, wireless.wirelesslink
 
 ## Filters
 
@@ -26,6 +48,49 @@ Filters map to NetBox API:
 - `{"name__ic": "switch"}` - case-insensitive contains
 - `{"site": "HQ", "status": "active"}` - multiple filters
 - `{"tenant_id": 7}` - bulk queries by ID (preferred over iteration)
+
+## Token Optimization with Field Filtering
+
+**CRITICAL for efficiency**: Always use field filtering to reduce token usage by 90%.
+
+**When to use field filtering:**
+- Large result sets (>10 objects)
+- When you only need specific fields (name, status, ID)
+- Cross-domain queries aggregating data
+
+**Field filtering patterns:**
+```python
+# ❌ BAD: Full objects (5000 tokens for 50 devices)
+netbox_get_objects("dcim.device", {"site": "DC1"})
+
+# ✅ GOOD: Only needed fields (500 tokens for 50 devices)
+netbox_get_objects("dcim.device", {"site": "DC1"}, fields=["id", "name", "status", "device_type"])
+
+# ✅ EXCELLENT: Brief mode for ID lookups (minimal tokens)
+netbox_get_object_by_id("dcim.device", 123, brief=True)
+```
+
+**Common field patterns:**
+- **Devices**: `["id", "name", "status", "device_type", "site", "primary_ip4"]`
+- **IP Addresses**: `["id", "address", "status", "dns_name", "description"]`
+- **Interfaces**: `["id", "name", "type", "enabled", "device"]`
+- **Sites**: `["id", "name", "status", "region", "description"]`
+- **Racks**: `["id", "name", "status", "site", "u_height"]`
+
+**Pagination for large datasets:**
+```python
+# Get first 20 devices (default limit is 5)
+netbox_get_objects("dcim.device", {}, limit=20)
+
+# Get next page
+netbox_get_objects("dcim.device", {}, limit=20, offset=20)
+```
+
+**Search for exploratory queries:**
+```python
+# Don't know object type? Use search
+netbox_search_objects("core-router", object_types=["dcim.device"], fields=["id", "name"])
+```
 
 ## Execution Strategy
 
@@ -116,13 +181,13 @@ Examples:
 ❌ **WRONG** (Site-by-site iteration):
 ```
 for site_id in [1, 2, 3, ..., 14]:
-    devices = netbox_get_objects("devices", {"site_id": site_id})
+    devices = netbox_get_objects("dcim.device", {"site_id": site_id})
 ```
 Result: 75 tool calls, 347 seconds, FAILED
 
 ✅ **CORRECT** (Bulk query with tenant filter):
 ```
-devices = netbox_get_objects("devices", {"tenant_id": tenant_id})
+devices = netbox_get_objects("dcim.device", {"tenant_id": tenant_id})
 # Then group by site in code
 ```
 Result: 5 tool calls, 15 seconds, SUCCESS
