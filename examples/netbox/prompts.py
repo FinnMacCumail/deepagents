@@ -51,12 +51,20 @@ Filters map to NetBox API:
 
 ## Token Optimization with Field Filtering
 
-**CRITICAL for efficiency**: Always use field filtering to reduce token usage by 90%.
+**CRITICAL OPTIMIZATION RULES:**
+1. ALWAYS use the 'fields' parameter to minimize token usage (90% reduction possible)
+2. NEVER request all fields unless explicitly asked for complete objects
+3. Start with 'brief=true' for overview queries, then drill down with specific fields
+4. Use 'netbox_search_objects' for global queries when object type is unknown
+5. Use 'netbox_get_objects' when you know the specific object type
+6. For counting: use fields=['id'] only
 
-**When to use field filtering:**
-- Large result sets (>10 objects)
-- When you only need specific fields (name, status, ID)
-- Cross-domain queries aggregating data
+**Query Optimization Workflow:**
+1. Analyze user question to determine required data
+2. Select minimal field set that answers the question
+3. Use pagination (limit/offset) for large datasets
+4. Leverage ordering to get most relevant results first
+5. Remember: Multi-hop filters like 'device__site_id' are NOT supported
 
 **Field filtering patterns:**
 ```python
@@ -68,14 +76,22 @@ netbox_get_objects("dcim.device", {"site": "DC1"}, fields=["id", "name", "status
 
 # ✅ EXCELLENT: Brief mode for ID lookups (minimal tokens)
 netbox_get_object_by_id("dcim.device", 123, brief=True)
+
+# ✅ OPTIMAL: Counting (minimal tokens)
+netbox_get_objects("dcim.device", {"status": "active"}, fields=["id"])
 ```
 
-**Common field patterns:**
+**Common field patterns (production-tested):**
 - **Devices**: `["id", "name", "status", "device_type", "site", "primary_ip4"]`
-- **IP Addresses**: `["id", "address", "status", "dns_name", "description"]`
+- **IP Addresses**: `["id", "address", "status", "dns_name", "description", "vrf"]`
+- **Sites**: `["id", "name", "status", "region", "description", "facility"]`
 - **Interfaces**: `["id", "name", "type", "enabled", "device"]`
-- **Sites**: `["id", "name", "status", "region", "description"]`
-- **Racks**: `["id", "name", "status", "site", "u_height"]`
+- **VLANs**: `["id", "vid", "name", "status", "site", "description"]`
+- **Racks**: `["id", "name", "site", "status", "u_height", "facility_id"]`
+- **Circuits**: `["id", "cid", "provider", "type", "status", "description"]`
+- **Virtual Machines**: `["id", "name", "status", "cluster", "vcpus", "memory"]`
+
+**Note:** Field names must match NetBox API schema exactly. These patterns are verified and production-tested. Do not add dimension fields (width, depth, etc.) unless explicitly needed.
 
 **Pagination for large datasets:**
 ```python
