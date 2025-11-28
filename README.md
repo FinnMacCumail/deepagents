@@ -1,36 +1,152 @@
-# 🧠🤖Deep Agents
+# NetBox Infrastructure Chatbot
 
-Using an LLM to call tools in a loop is the simplest form of an agent. 
-This architecture, however, can yield agents that are “shallow” and fail to plan and act over longer, more complex tasks. 
-Applications like “Deep Research”, "Manus", and “Claude Code” have gotten around this limitation by implementing a combination of four things:
-a **planning tool**, **sub agents**, access to a **file system**, and a **detailed prompt**.
+An AI-powered chatbot for querying and analyzing NetBox infrastructure data. Ask natural language questions about your data centers, devices, IP addresses, racks, and circuits - get instant, accurate answers.
 
-<img src="deep_agents.png" alt="deep agent" width="600"/>
+**Powered by the DeepAgents framework + NetBox MCP Server v1.0.0**
 
-`deepagents` is a Python package that implements these in a general purpose way so that you can easily create a Deep Agent for your application.
+## Quick Start
 
-**Acknowledgements: This project was primarily inspired by Claude Code, and initially was largely an attempt to see what made Claude Code general purpose, and make it even more so.**
+```bash
+# Install
+git clone https://github.com/yourusername/deepagents.git
+cd deepagents
+pip install -e .
+
+# Set NetBox credentials
+export NETBOX_URL="http://your-netbox-instance:8000"
+export NETBOX_TOKEN="your-api-token-here"
+
+# Run the chatbot
+cd examples/netbox
+python netbox_agent.py
+```
+
+**Example queries:**
+```
+Query: Show all devices at site DM-Scranton with their IP addresses
+Query: What racks are available in the Akron data center?
+Query: List all active circuits for tenant Dunder Mifflin
+Query: Show me the network topology for device core-router-01
+```
+
+Type `exit` or `quit` to stop the chatbot.
+
+## Key Features
+
+### **90% Token Reduction**
+Field filtering optimization reduces tokens from 5,000 to 500 per query, dramatically lowering costs and improving response times.
+
+###  **MCP Integration**
+Uses NetBox MCP Server v1.0.0 with 4 generic tools (`netbox_get_objects`, `netbox_get_object_by_id`, `netbox_get_changelogs`, `netbox_search_objects`) instead of 62 specialized tools.
+
+### **Prompt Caching**
+Achieves 84%+ cache hit rate for system prompts and tool schemas, providing 70% cost reduction on cached portions.
+
+### **Interactive CLI**
+Async execution with streaming responses provides real-time feedback as the agent processes complex queries.
+
+### **Production-Tested**
+Field patterns and optimization strategies validated in real-world infrastructure management scenarios.
+
+## How It Works
+
+The NetBox chatbot combines two key technologies:
+
+### 1. DeepAgents Framework
+Provides the "deep agent" architecture with:
+- **Planning tool** - Task decomposition and progress tracking
+- **Context management** - Message trimming and summarization
+- **Tool orchestration** - Intelligent tool selection and execution
+- **Semantic understanding** - Natural language query interpretation
+
+### 2. NetBox MCP Server
+Exposes NetBox API as Model Context Protocol (MCP) tools with:
+- **Field filtering** - Select only needed fields (90% token reduction)
+- **Generic tools** - 4 tools instead of 62 (800-1,600 tokens saved)
+- **Pagination** - Handle large datasets efficiently
+- **Real-time data** - Direct access to NetBox instance
+
+### Architecture Flow
+
+```
+User Query → DeepAgents Framework → NetBox MCP Tools → NetBox API
+              ↓                        ↓
+              Planning                 Field Filtering
+              Context Management       Data Retrieval
+              ↓                        ↓
+              ← Formatted Response ← Processed Data
+```
+
+## About DeepAgents Framework
+
+Using an LLM to call tools in a loop is the simplest form of an agent. This architecture, however, can yield agents that are "shallow" and fail to plan and act over longer, more complex tasks. Applications like "Deep Research", "Manus", and "Claude Code" have gotten around this limitation by implementing a combination of four things: a **planning tool**, **sub agents**, access to a **file system**, and a **detailed prompt**.
+
+`deepagents` is a Python package that implements these components in a general-purpose way so that you can easily create a Deep Agent for your application. The NetBox chatbot is a production implementation of this framework.
+
+**Acknowledgements:** This project was primarily inspired by Claude Code, and initially was largely an attempt to see what made Claude Code general purpose, and make it even more so.
+
+### Four Pillars of Deep Agents
+
+1. **Detailed System Prompt** - Complex, nuanced instructions with behavioral examples
+2. **Planning Tool** - Maintains focus and tracks progress across long-horizon tasks
+3. **Sub-Agents** - Specialized agents with context quarantine for task decomposition
+4. **File System Access** - Persistent memory and workspace for collaboration
+
+## Documentation & Resources
+
+### NetBox Chatbot
+- **[NetBox Agent Guide](examples/netbox/README.md)** - Complete usage guide and examples
+- **[Architecture Reports](examples/netbox/docs/netbox/reports/)** - Design decisions and rationale
+  - [NO_SUBAGENTS_RATIONALE.md](examples/netbox/docs/netbox/reports/NO_SUBAGENTS_RATIONALE.md) - Why sub-agents aren't always needed
+  - [NETBOX_AGENT_COMPREHENSIVE_REPORT.md](examples/netbox/docs/netbox/reports/NETBOX_AGENT_COMPREHENSIVE_REPORT.md) - Complete architecture analysis
+  - [README_CACHING.md](examples/netbox/docs/netbox/reports/README_CACHING.md) - Prompt caching implementation
+- **[Performance Analysis](examples/netbox/docs/netbox/analysis/)** - Token optimization and validation
+  - [TOOL_REMOVAL_RESULTS.md](examples/netbox/docs/netbox/analysis/TOOL_REMOVAL_RESULTS.md) - Token optimization findings
+  - [VALIDATION_RESULTS_SUMMARY.md](examples/netbox/docs/netbox/analysis/VALIDATION_RESULTS_SUMMARY.md) - Performance metrics
+- **[Migration Guides](examples/netbox/docs/netbox/migrations/)** - MCP integration and setup
+  - [SIMPLEMCP_MIGRATION_COMPLETE.md](examples/netbox/docs/netbox/migrations/SIMPLEMCP_MIGRATION_COMPLETE.md) - MCP integration approach
+
+### DeepAgents Framework
+- **[Agent Development Playbook](docs/guides/AGENTS.md)** - Build custom agents with best practices
+- **[Context Engineering Report](docs/guides/context-engineering-report.md)** - Optimization strategies and production insights
+- **[Framework Development](docs/development/)** - Migration guides and technical reports
+  - [initial-langchain-v1-optimization.md](docs/development/initial-langchain-v1-optimization.md) - LangChain v1 migration
+  - [MIDDLEWARE_ALIGNMENT_REPORT.md](docs/development/MIDDLEWARE_ALIGNMENT_REPORT.md) - Middleware architecture
+  - [FETCH_MCP_USAGE.md](docs/development/FETCH_MCP_USAGE.md) - MCP server setup guide
 
 ## Installation
+
+Install the DeepAgents framework:
 
 ```bash
 pip install deepagents
 ```
 
-## Usage
+For the NetBox chatbot, clone this repository and install in development mode:
 
-(To run the example below, will need to `pip install tavily-python`)
+```bash
+git clone https://github.com/yourusername/deepagents.git
+cd deepagents
+pip install -e .
+```
+
+## Advanced Usage - Building Custom Deep Agents
+
+The NetBox chatbot demonstrates one application of the DeepAgents framework. You can use the same framework to build agents for other domains.
+
+### Basic Example - Research Agent
+
+(Requires `pip install tavily-python`)
 
 ```python
 import os
 from typing import Literal
-
 from tavily import TavilyClient
 from deepagents import create_deep_agent
 
 tavily_client = TavilyClient(api_key=os.environ["TAVILY_API_KEY"])
 
-# Search tool to use to do research
+# Search tool
 def internet_search(
     query: str,
     max_results: int = 5,
@@ -45,8 +161,7 @@ def internet_search(
         topic=topic,
     )
 
-
-# Prompt prefix to steer the agent to be an expert researcher
+# Agent instructions
 research_instructions = """You are an expert researcher. Your job is to conduct thorough research, and then write a polished report.
 
 You have access to a few tools.
@@ -68,30 +183,29 @@ result = agent.invoke({"messages": [{"role": "user", "content": "what is langgra
 
 See [examples/research/research_agent.py](examples/research/research_agent.py) for a more complex example.
 
-The agent created with `create_deep_agent` is just a LangGraph graph - so you can interact with it (streaming, human-in-the-loop, memory, studio)
-in the same way you would any LangGraph agent.
+The agent created with `create_deep_agent` is just a LangGraph graph - so you can interact with it (streaming, human-in-the-loop, memory, studio) in the same way you would any LangGraph agent.
 
-## Creating a custom deep agent
+### Creating a Custom Deep Agent
 
 There are three parameters you can pass to `create_deep_agent` to create your own custom deep agent.
 
-### `tools` (Required)
+#### `tools` (Required)
 
 The first argument to `create_deep_agent` is `tools`.
 This should be a list of functions or LangChain `@tool` objects.
 The agent (and any subagents) will have access to these tools.
 
-### `instructions` (Required)
+#### `instructions` (Required)
 
 The second argument to `create_deep_agent` is `instructions`.
 This will serve as part of the prompt of the deep agent.
 Note that there is a [built in system prompt](src/deepagents/prompts.py) as well, so this is not the *entire* prompt the agent will see.
 
-### `subagents` (Optional)
+#### `subagents` (Optional)
 
 A keyword-only argument to `create_deep_agent` is `subagents`.
 This can be used to specify any custom subagents this deep agent will have access to.
-You can read more about why you would want to use subagents [here](#sub-agents)
+You can read more about why you would want to use subagents in the [context quarantine](https://www.dbreunig.com/2025/06/26/how-to-fix-your-context.html#context-quarantine) article.
 
 `subagents` should be a list of dictionaries, where each dictionary follow this schema:
 
@@ -118,10 +232,10 @@ class CustomSubAgent(TypedDict):
 
 **CustomSubAgent fields:**
 - **name**: This is the name of the subagent, and how the main agent will call the subagent
-- **description**: This is the description of the subagent that is shown to the main agent  
+- **description**: This is the description of the subagent that is shown to the main agent
 - **graph**: A pre-built LangGraph graph/agent that will be used as the subagent
 
-#### Using SubAgent
+##### Using SubAgent
 
 ```python
 research_subagent = {
@@ -137,7 +251,7 @@ agent = create_deep_agent(
 )
 ```
 
-#### Using CustomSubAgent
+##### Using CustomSubAgent
 
 For more complex use cases, you can provide your own pre-built LangGraph graph as a subagent:
 
@@ -166,13 +280,13 @@ agent = create_deep_agent(
 )
 ```
 
-### `model` (Optional)
+#### `model` (Optional)
 
 By default, `deepagents` uses `"claude-sonnet-4-20250514"`. You can customize this by passing any [LangChain model object](https://python.langchain.com/docs/integrations/chat/).
 
-### `builtin_tools` (Optional)
+#### `builtin_tools` (Optional)
 
-By default, a deep agent will have access to a number of [built-in tools](#builtintools--optional-).
+By default, a deep agent will have access to a number of [built-in tools](#built-in-tools).
 You can change this by specifying the tools (by name) that the agent should have access to with this parameter.
 
 Example:
@@ -182,7 +296,7 @@ builtin_tools = ["write_todos"]
 agent = create_deep_agent(..., builtin_tools=builtin_tools, ...)
 ```
 
-#### Example: Using a Custom Model
+##### Example: Using a Custom Model
 
 Here's how to use a custom model (like OpenAI's `gpt-oss` model via Ollama):
 
@@ -194,7 +308,7 @@ from deepagents import create_deep_agent
 # ... existing agent definitions ...
 
 model = init_chat_model(
-    model="ollama:gpt-oss:20b",  
+    model="ollama:gpt-oss:20b",
 )
 agent = create_deep_agent(
     tools=tools,
@@ -204,7 +318,7 @@ agent = create_deep_agent(
 )
 ```
 
-#### Example: Per-subagent model override (optional)
+##### Example: Per-subagent model override (optional)
 
 Use a fast, deterministic model for a critique sub-agent, while keeping a different default model for the main agent and others:
 
@@ -230,7 +344,7 @@ agent = create_deep_agent(
 )
 ```
 
-## Deep Agent Details
+## Deep Agent Components
 
 The below components are built into `deepagents` and helps make it work for deep tasks off-the-shelf.
 
@@ -291,13 +405,13 @@ By default, deep agents come with five built-in tools:
 - `ls`: Tool for listing files in the virtual filesystem
 - `edit_file`: Tool for editing a file in the virtual filesystem
 
-These can be disabled via the [`builtin_tools`](#builtintools--optional-) parameter.
+These can be disabled via the [`builtin_tools`](#builtintools--optional) parameter.
 
 ### Human-in-the-Loop
 
 `deepagents` supports human-in-the-loop approval for tool execution. You can configure specific tools to require human approval before execution using the `interrupt_config` parameter, which maps tool names to `HumanInterruptConfig`.
 
-`HumanInterruptConfig` is how you specify what type of human in the loop patterns are supported. 
+`HumanInterruptConfig` is how you specify what type of human in the loop patterns are supported.
 It is a dictionary with four specific keys:
 
 - `allow_ignore`: Whether the user can skip the tool call
@@ -398,12 +512,16 @@ for s in agent.stream(Command(resume=[{"type": "response", "args": "..."}]), con
     print(s)
 
 ```
+
 ## Async
 
 If you are passing async tools to your agent, you will want to `from deepagents import async_create_deep_agent`
-## MCP
+
+## MCP Integration
 
 The `deepagents` library can be ran with MCP tools. This can be achieved by using the [Langchain MCP Adapter library](https://github.com/langchain-ai/langchain-mcp-adapters).
+
+The NetBox chatbot demonstrates production MCP integration. See [examples/netbox/netbox_agent.py](examples/netbox/netbox_agent.py) for complete implementation.
 
 **NOTE:** will want to use `from deepagents import async_create_deep_agent` to use the async version of `deepagents`, since MCP tools are async
 
@@ -453,10 +571,26 @@ You can now use `build_agent` in your `langgraph.json` and deploy it with `langg
 
 For async tools, you can use `from deepagents import async_create_configurable_agent`
 
-
 ## Roadmap
+
+### NetBox Chatbot
+- [ ] Web UI for chatbot interface
+- [ ] Multi-tenant support (multiple NetBox instances)
+- [ ] Advanced visualizations (topology diagrams, capacity heatmaps)
+- [ ] Batch query processing
+- [ ] Export results (PDF, CSV, JSON)
+
+### DeepAgents Framework
 - [ ] Allow users to customize full system prompt
 - [ ] Code cleanliness (type hinting, docstrings, formating)
 - [ ] Allow for more of a robust virtual filesystem
 - [ ] Create an example of a deep coding agent built on top of this
 - [ ] Benchmark the example of [deep research agent](examples/research/research_agent.py)
+
+## Contributing
+
+Contributions are welcome! The NetBox chatbot demonstrates production patterns for building deep agents. See [docs/guides/AGENTS.md](docs/guides/AGENTS.md) for agent development best practices.
+
+## License
+
+MIT License - See LICENSE file for details
