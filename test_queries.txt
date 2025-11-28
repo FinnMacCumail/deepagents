@@ -1,2 +1,0 @@
-Show all Dunder-Mifflin sites with device counts, rack allocations, and IP prefix assignments
-exit
