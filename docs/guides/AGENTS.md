@@ -1,5 +1,9 @@
 # DeepAgents Agent Playbook
 
+> ⚠️ **Historical / superseded.** Describes the first-generation architecture (some references,
+> e.g. `create_react_agent`, predate the current v1 code). Superseded by
+> **[ollamaDeepAgents](https://github.com/FinnMacCumail/ollamaDeepAgents)**. Retained for reference.
+
 This document distills how agents in this repository should be built and operated. Use it as the starting point when creating, extending, or debugging agents.
 
 ## Architectural Foundations

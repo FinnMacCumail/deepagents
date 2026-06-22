@@ -1,5 +1,12 @@
 # Claude Code Guidance for DeepAgents Repository
 
+> ⚠️ **Historical / superseded.** This guidance describes the *first-generation* architecture
+> (LangChain v0 patterns: `create_react_agent`, `pre_model_hook`, `sub_agent.py`,
+> `_create_task_tool()`). Parts of it no longer match the current code (which uses the v1
+> `create_agent` + middleware stack), and the whole repo is superseded by
+> **[ollamaDeepAgents](https://github.com/FinnMacCumail/ollamaDeepAgents)** (DeepAgents 0.6.10).
+> It is retained for historical reference — do not treat it as current operating guidance.
+
 This file provides guidance for Claude Code to operate effectively in this repository.
 
 ## Project Goals and Motivation

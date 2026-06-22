@@ -1,5 +1,30 @@
 # NetBox Infrastructure Chatbot
 
+> ## ⚠️ Superseded — see [**ollamaDeepAgents**](https://github.com/FinnMacCumail/ollamaDeepAgents)
+>
+> This repository is the **first-generation** NetBox agent (built on a vendored
+> DeepAgents 0.0.5-era fork, Anthropic-cloud-only). It is retained as a historical
+> reference and is no longer actively developed.
+>
+> Its successor, **[ollamaDeepAgents](https://github.com/FinnMacCumail/ollamaDeepAgents)**,
+> carries this work forward on **packaged DeepAgents 0.6.10** and adds:
+> - **Dual backend** — local Ollama / llama.cpp **plus** Ollama Cloud frontier models
+>   (`deepseek-v4-flash:cloud` matches Claude quality at ~36% lower latency)
+> - A **LangSmith model-matrix evaluation harness** (`tests/eval/`) for systematic,
+>   scored multi-model benchmarking
+> - Custom **filter-recovery middleware** and a **skills system**
+>
+> The genuinely-valuable design rationale from this repo (the context-engineering report,
+> the no-subagents rationale, tool-removal/validation findings, the trace-analysis scripts,
+> and the PRP methodology) has been **harvested into ollamaDeepAgents** under `docs/lineage/`
+> with provenance. The evolution is narrated in the
+> [rtf-research portfolio](https://github.com/FinnMacCumail/rtf-research).
+>
+> **Everything below describes the first-generation system and may reference deprecated
+> models, an obsolete `USE_V1_CORE` flag, and earlier APIs. Read it as history.**
+
+---
+
 An AI-powered chatbot for querying and analyzing NetBox infrastructure data. Ask natural language questions about your data centers, devices, IP addresses, racks, and circuits - get instant, accurate answers.
 
 **Powered by the DeepAgents framework + NetBox MCP Server v1.0.0**
